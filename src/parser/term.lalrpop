@@ -1,0 +1,25 @@
+use crate::ast::Term;
+
+grammar;
+
+pub Term: Term = {
+    <AppTerm>,
+    <v:Id> ":" <t:Term> => Term::Lam(v, t.into()),
+    "if" <c:Term> "then" <t:Term> "else" <e:Term> => Term::If(c.into(), t.into(), e.into()),
+};
+
+AppTerm: Term = {
+    <AtomicTerm>,
+    <t1:AppTerm> <t2:AtomicTerm> => Term::App(t1.into(), t2.into()),
+}
+
+AtomicTerm: Term = {
+    "true" => Term::True,
+    "false" => Term::False,
+    Id => Term::Var(<>).into(),
+    "(" <Term> ")",
+}
+
+Id: String = {
+    r"[a-zA-Z][a-zA-Z0-9]*" => <>.into(),
+}

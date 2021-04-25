@@ -5,6 +5,11 @@ use std::{
     sync::atomic::{self, AtomicUsize},
 };
 
+mod ast;
+mod parser;
+
+pub use parser::parse_term;
+
 #[derive(Debug, Clone)]
 pub enum Term {
     True,
@@ -686,15 +691,6 @@ impl Solution {
 mod test {
     use super::*;
 
-    macro_rules! term {
-        (true) => { Term::True };
-        (false) => { Term::False };
-        ($v:literal) => { Term::Var(String::from($v)) };
-        (lam $x:literal. $($t:tt)+) => { Term::Lam(String::from($x), Box::new(term!($($t)+))) };
-        (($($t1:tt)+) $($t2:tt)+) => { Term::App(Box::new(term!($($t1)+)), Box::new(term!($($t2)+))) };
-        (if ( $($c:tt)+ ) { $($t:tt)+ } else { $($e:tt)+ }) => { Term::If(Box::new(term!($($c)+)), Box::new(term!($($t)+)), Box::new(term!($($e)+))) };
-    }
-
     fn env() -> Environment {
         vec![(
             String::from("not"),
@@ -742,7 +738,7 @@ mod test {
     #[test]
     fn test_not_first() {
         success(
-            term!(lam "x". lam "y". ("not") "x"),
+            parse_term("x: y: not x").unwrap(),
             env(),
             Type::fun(Type::boolean(), Type::fun(Type::any(), Type::boolean())),
         );
@@ -751,7 +747,7 @@ mod test {
     #[test]
     fn test_id() {
         success(
-            term!(lam "x". "x"),
+            parse_term("x: x").unwrap(),
             env(),
             Type::fun(Type::any(), Type::any()),
         );
@@ -760,7 +756,7 @@ mod test {
     #[test]
     fn test_xx() {
         success(
-            term!(lam "x". ("x") "x"),
+            parse_term("x: x x").unwrap(),
             env(),
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
@@ -768,13 +764,13 @@ mod test {
 
     #[test]
     fn test_not_id() {
-        fail(term!(("not") lam "x". "x"), env())
+        fail(parse_term("not (x: x)").unwrap(), env())
     }
 
     #[test]
     fn test_branch() {
         success(
-            term!(lam "x". if ("x") { ("not") "x" } else { "x" }),
+            parse_term("x: if x then not x else x").unwrap(),
             env(),
             Type::fun(Type::boolean(), Type::boolean()),
         );
@@ -785,7 +781,7 @@ mod test {
         // let F be this lambda abstaction.
         // If (F x) terminates, x = ff and F x = ff, which means F is typable with ff -> ff.
         success(
-            term!(lam "x". if ("x") { ("x") true } else { "x" }),
+            parse_term("x: if x then x true else x").unwrap(),
             env(),
             Type::fun(Type::ff(), Type::ff()),
         );
