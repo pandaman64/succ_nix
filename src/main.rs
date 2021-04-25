@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     fmt,
     sync::atomic::{self, AtomicUsize},
 };
@@ -38,57 +38,163 @@ macro_rules! term {
     (if ( $($c:tt)+ ) { $($t:tt)+ } else { $($e:tt)+ }) => { Term::If(Box::new(term!($($c)+)), Box::new(term!($($t)+)), Box::new(term!($($e)+))) };
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PrimType {
-    True,
-    False,
-    Var(String),
-    Fun(Box<Type>, Box<Type>),
+// possible boolean values
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BoolDomain {
+    tt: bool,
+    ff: bool,
 }
 
-impl fmt::Display for PrimType {
+impl fmt::Display for BoolDomain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use PrimType::*;
-
-        match self {
-            True => f.write_str("tt"),
-            False => f.write_str("ff"),
-            Var(v) => f.write_str(v),
-            Fun(t1, t2) => write!(f, "{} -> {}", t1, t2),
+        match (self.tt, self.ff) {
+            (true, true) => f.write_str("bool"),
+            (true, false) => f.write_str("tt"),
+            (false, true) => f.write_str("ff"),
+            (false, false) => Ok(()),
         }
     }
 }
 
-impl PrimType {
-    fn inf(&self, other: &PrimType) -> Option<PrimType> {
-        use PrimType::*;
+impl Default for BoolDomain {
+    fn default() -> Self {
+        Self {
+            tt: false,
+            ff: false,
+        }
+    }
+}
 
-        match (self, other) {
-            (Var(_), _) | (_, Var(_)) => panic!("no var must occur in inf"),
-            (_, _) if self == other => Some(self.clone()),
-            (Fun(arg1, ret1), Fun(arg2, ret2)) => {
-                // since f: A1 -> R1 and f: A2 -> R2,
-                // f x ≠ ⊥ implies x ∈ A1 ∧ x ∈ A2 ∧ f x ∈ R1 ∧ f x ∈ R2.
-                // therefore, f: A1 ∩ A2 -> R1 ∩ R2.
-                let arg = arg1.inf(arg2);
-                let ret = ret1.inf(ret2);
+impl BoolDomain {
+    fn is_bottom(&self) -> bool {
+        !self.tt && !self.ff
+    }
 
-                // coalesce ⊥ -> R and A -> ⊥ into ⊥
-                if arg.is_bottom() || ret.is_bottom() {
-                    None
-                } else {
-                    Some(Fun(arg.into(), ret.into()))
+    fn sup(&self, other: &Self) -> Self {
+        Self {
+            tt: self.tt || other.tt,
+            ff: self.ff || other.ff,
+        }
+    }
+
+    fn inf(&self, other: &Self) -> Self {
+        Self {
+            tt: self.tt && other.tt,
+            ff: self.ff && other.ff,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VarDomain {
+    vars: BTreeSet<String>,
+}
+
+impl VarDomain {
+    fn is_bottom(&self) -> bool {
+        self.vars.is_empty()
+    }
+
+    fn sup(&self, other: &Self) -> Self {
+        let vars = self.vars.union(&other.vars).cloned().collect();
+        Self { vars }
+    }
+
+    fn fmt(&self, f: &mut fmt::Formatter, mut first: bool) -> fmt::Result {
+        for v in self.vars.iter() {
+            if first {
+                first = false;
+                write!(f, "{}", v)?;
+            } else {
+                write!(f, " ∪ {}", v)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FunType {
+    arg: Box<Type>,
+    ret: Box<Type>,
+}
+
+impl fmt::Display for FunType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} -> {}", self.arg, self.ret)
+    }
+}
+
+impl FunType {
+    fn inf(&self, other: &Self) -> Option<Self> {
+        // since f: A1 -> R1 and f: A2 -> R2,
+        // f x ≠ ⊥ implies x ∈ A1 ∧ x ∈ A2 ∧ f x ∈ R1 ∧ f x ∈ R2.
+        // therefore, f: A1 ∩ A2 -> R1 ∩ R2.
+        let arg = self.arg.inf(&other.arg);
+        let ret = self.ret.inf(&other.ret);
+
+        // coalesce ⊥ -> R and A -> ⊥ into ⊥
+        if arg.is_bottom() || ret.is_bottom() {
+            None
+        } else {
+            Some(Self {
+                arg: Box::new(arg),
+                ret: Box::new(ret),
+            })
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FunDomain {
+    funs: BTreeSet<FunType>,
+}
+
+impl FunDomain {
+    fn is_bottom(&self) -> bool {
+        self.funs.is_empty()
+    }
+
+    fn sup(&self, other: &Self) -> Self {
+        // CR pandaman: minimization/normalization is needed here
+        let funs = self.funs.union(&other.funs).cloned().collect();
+        Self { funs }
+    }
+
+    fn inf(&self, other: &Self) -> Self {
+        // (A ∪ B) ∩ (C ∪ D) = (A ∩ C) ∪ (A ∩ D) ∪ (B ∩ C) ∪ (B ∩ D)
+        let mut funs = BTreeSet::new();
+        for fun1 in self.funs.iter() {
+            for fun2 in other.funs.iter() {
+                if let Some(fun) = fun1.inf(fun2) {
+                    funs.insert(fun);
                 }
             }
-            _ => None,
         }
+        Self { funs }
+    }
+
+    fn fmt(&self, f: &mut fmt::Formatter, mut first: bool) -> fmt::Result {
+        for fun in self.funs.iter() {
+            if first {
+                first = false;
+                write!(f, "{}", fun)?;
+            } else {
+                write!(f, " ∪ {}", fun)?;
+            }
+        }
+        Ok(())
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Type {
-    Union(Vec<PrimType>),
     Any,
+    Union {
+        boolean: BoolDomain,
+        vars: VarDomain,
+        funs: FunDomain,
+    },
     // Bottom,
 }
 
@@ -97,53 +203,104 @@ impl fmt::Display for Type {
         use Type::*;
 
         match self {
-            // When(t, c) => write!(f, "({} when {})", t, c),
-            Union(ts) => match ts.as_slice() {
-                [] => f.write_str("∅"),
-                [head, tail @ ..] => {
-                    write!(f, "{}", head)?;
-                    for t in tail {
-                        write!(f, " ∪ {}", t)?;
-                    }
-                    Ok(())
-                }
-            },
             Any => f.write_str("any"),
+            Union { .. } if self.is_bottom() => f.write_str("∅"),
+            Union {
+                boolean,
+                vars,
+                funs,
+            } => {
+                if !boolean.is_bottom() {
+                    write!(f, "{}", boolean)?;
+                }
+                if !vars.is_bottom() {
+                    vars.fmt(f, boolean.is_bottom())?;
+                }
+                if !funs.is_bottom() {
+                    funs.fmt(f, boolean.is_bottom() && vars.is_bottom())?;
+                }
+                Ok(())
+            }
         }
     }
 }
 
 impl Type {
     fn tt() -> Self {
-        Type::Union(vec![PrimType::True])
+        Type::Union {
+            boolean: BoolDomain {
+                tt: true,
+                ff: false,
+            },
+            vars: Default::default(),
+            funs: Default::default(),
+        }
     }
 
     fn ff() -> Self {
-        Type::Union(vec![PrimType::False])
-    }
-
-    fn var(v: String) -> Self {
-        Type::Union(vec![PrimType::Var(v)])
-    }
-
-    fn fun(arg: Type, ret: Type) -> Self {
-        Type::Union(vec![PrimType::Fun(arg.into(), ret.into())])
+        Type::Union {
+            boolean: BoolDomain {
+                tt: false,
+                ff: true,
+            },
+            vars: Default::default(),
+            funs: Default::default(),
+        }
     }
 
     fn boolean() -> Self {
-        Type::Union(vec![PrimType::True, PrimType::False])
+        Type::Union {
+            boolean: BoolDomain { tt: true, ff: true },
+            vars: Default::default(),
+            funs: Default::default(),
+        }
     }
 
-    fn none() -> Self {
-        Type::Union(vec![])
+    fn var(v: String) -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            vars: VarDomain {
+                vars: {
+                    let mut vars = BTreeSet::new();
+                    vars.insert(v);
+                    vars
+                },
+            },
+            funs: Default::default(),
+        }
     }
+
+    fn fun(arg: Type, ret: Type) -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            vars: Default::default(),
+            funs: FunDomain {
+                funs: {
+                    let mut funs = BTreeSet::new();
+                    funs.insert(FunType {
+                        arg: arg.into(),
+                        ret: ret.into(),
+                    });
+                    funs
+                },
+            },
+        }
+    }
+
+    // fn none() -> Self {
+    //     Type::Union {
+    //         boolean: Default::default(),
+    //         vars: Default::default(),
+    //         funs: Default::default(),
+    //     }
+    // }
 
     fn any() -> Self {
         Type::Any
     }
 
     fn is_bottom(&self) -> bool {
-        matches!(self, Type::Union(ts) if ts.is_empty())
+        matches!(self, Type::Union { boolean, vars, funs } if boolean.is_bottom() && vars.is_bottom() && funs.is_bottom())
     }
 
     fn is_subtype(&self, other: &Type) -> bool {
@@ -158,20 +315,26 @@ impl Type {
 
         match (self, other) {
             (Any, _) | (_, Any) => Any,
-            (Union(this), Union(other)) => {
-                // suppress infinite growth
-                if this.len() + other.len() > 10 {
-                    Any
-                } else {
-                    // CR pandaman: opportunity for optimization (PrimTypeのdiscriminantが同じやつをまとめられる)
-                    // Union自体をDomainごとに分割してそれぞれでsupとりたい
-                    let mut this = this.clone();
-                    for o in other.iter() {
-                        if this.iter().all(|t| t != o) {
-                            this.push(o.clone());
-                        }
-                    }
-                    Union(this)
+            (
+                Union {
+                    boolean: b1,
+                    vars: v1,
+                    funs: f1,
+                },
+                Union {
+                    boolean: b2,
+                    vars: v2,
+                    funs: f2,
+                },
+            ) => {
+                let boolean = b1.sup(b2);
+                let vars = v1.sup(v2);
+                let funs = f1.sup(f2);
+
+                Union {
+                    boolean,
+                    vars,
+                    funs,
                 }
             }
         }
@@ -185,17 +348,30 @@ impl Type {
             (Any, ty) | (ty, Any) => ty.clone(),
             (_, ty) if self.is_bottom() => ty.clone(),
             (ty, _) if other.is_bottom() => ty.clone(),
-            // (A ∪ B) ∩ (C ∪ D) = (A ∩ C) ∪ (A ∩ D) ∪ (B ∩ C) ∪ (B ∩ D)
-            (Union(this), Union(other)) => {
-                let mut ts = vec![];
-                for t1 in this.iter() {
-                    for t2 in other.iter() {
-                        if let Some(t) = t1.inf(t2) {
-                            ts.push(t);
-                        }
-                    }
+            (
+                Union {
+                    boolean: b1,
+                    vars: v1,
+                    funs: f1,
+                },
+                Union {
+                    boolean: b2,
+                    vars: v2,
+                    funs: f2,
+                },
+            ) => {
+                assert!(v1.is_bottom());
+                assert!(v2.is_bottom());
+
+                let boolean = b1.inf(b2);
+                let vars = Default::default();
+                let funs = f1.inf(f2);
+
+                Union {
+                    boolean,
+                    vars,
+                    funs,
                 }
-                Union(ts)
             }
         }
     }
@@ -340,14 +516,10 @@ impl Solution {
         self.map.get(tvar).cloned().unwrap_or(Type::any())
     }
 
-    fn map_primty(&self, ty: &PrimType) -> Type {
-        use PrimType::*;
-
-        match ty {
-            True => Type::tt(),
-            False => Type::ff(),
-            Var(v) => self.map_tvar(v),
-            Fun(arg, ret) => Type::fun(self.map_ty(arg), self.map_ty(ret)),
+    fn map_fun(&self, fun: &FunType) -> FunType {
+        FunType {
+            arg: self.map_ty(&fun.arg).into(),
+            ret: self.map_ty(&fun.ret).into(),
         }
     }
 
@@ -355,20 +527,33 @@ impl Solution {
         use Type::*;
 
         match ty {
-            Union(ts) => {
+            Union {
+                boolean,
+                vars,
+                funs,
+            } => {
                 // (A ∪ B) ∪ (C ∪ D) = A ∪ B ∪ C ∪ D
-                let mut mapped = vec![];
-                for t in ts.iter() {
-                    match self.map_primty(t) {
-                        // A ∪ any = any
+                let mut ty = Type::Union {
+                    boolean: *boolean,
+                    vars: Default::default(),
+                    funs: Default::default(),
+                };
+
+                for v in vars.vars.iter() {
+                    match self.map_tvar(v) {
                         Any => return Any,
-                        Union(us) => mapped.extend(us.into_iter()),
+                        t => ty = ty.sup(&t),
                     }
                 }
-                Union(mapped)
+
+                for fun in funs.funs.iter() {
+                    let fun = self.map_fun(fun);
+                    ty = ty.sup(&Type::fun(*fun.arg, *fun.ret));
+                }
+
+                ty
             }
             Any => Any,
-            // Intersection(ts) => Intersection(ts.iter().map(|t| self.map_ty(t)).collect()),
         }
     }
 
@@ -376,31 +561,35 @@ impl Solution {
     // and update the solution
     fn update(&mut self, t1: &Type, inf: &Type) {
         eprintln!("update check: {} ⊆ {}", t1, inf);
-        use PrimType::*;
         use Type::*;
 
-        if let Union(t1) = t1 {
-            if let [t1] = t1.as_slice() {
-                match t1 {
-                    Var(v) => {
-                        eprintln!("update {} --> {}", v, inf);
-                        self.map.insert(v.clone(), inf.clone());
+        if let Union {
+            boolean,
+            vars,
+            funs,
+        } = t1
+        {
+            if !boolean.is_bottom() {
+                return;
+            }
+            if vars.vars.len() == 1 && funs.is_bottom() {
+                let v = vars.vars.iter().next().unwrap();
+                eprintln!("update {} --> {}", v, inf);
+                self.map.insert(v.clone(), inf.clone());
+            }
+            if vars.is_bottom() && funs.funs.len() == 1 {
+                let f = funs.funs.iter().next().unwrap();
+                if let Union {
+                    boolean,
+                    vars,
+                    funs,
+                } = inf
+                {
+                    if boolean.is_bottom() && vars.is_bottom() && funs.funs.len() == 1 {
+                        let inf = funs.funs.iter().next().unwrap();
+                        self.update(&f.arg, &inf.arg);
+                        self.update(&f.ret, &inf.ret);
                     }
-                    Fun(arg1, ret1) => {
-                        if let Union(inf) = inf {
-                            if let [inf] = inf.as_slice() {
-                                match inf {
-                                    Var(_) => unreachable!(),
-                                    Fun(arg2, ret2) => {
-                                        self.update(arg1, arg2);
-                                        self.update(ret1, ret2);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
                 }
             }
         }
@@ -514,20 +703,20 @@ fn main() {
     //     println!("{} --> {}", v, t);
     // }
 
-    // println!();
-    // let mut env = Environment::default();
-    // let (t, c) = success_type(&mut env, &term!(lam "x". ("x") "x"));
-    // println!("{}\n{}", t, c);
-    // println!("env:");
-    // for (v, t) in env.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
-    // let mut sol = Solution::default();
-    // let result = sol.refine(&c);
-    // println!("sol[{}]:", result);
-    // for (v, t) in sol.map.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
+    println!();
+    let mut env = Environment::default();
+    let (t, c) = success_type(&mut env, &term!(lam "x". ("x") "x"));
+    println!("{}\n{}", t, c);
+    println!("env:");
+    for (v, t) in env.iter() {
+        println!("{} --> {}", v, t);
+    }
+    let mut sol = Solution::default();
+    let result = sol.refine(&c);
+    println!("sol[{}]:", result);
+    for (v, t) in sol.map.iter() {
+        println!("{} --> {}", v, t);
+    }
 
     // println!();
     // let mut env = vec![(String::from("not"), Type::fun(Type::boolean(), Type::boolean()))].into_iter().collect();
@@ -568,7 +757,7 @@ fn main() {
     .collect();
     let (t, c) = success_type(
         &mut env,
-        &term!(lam "x". if ("x") { ("x") true } else { ("x") false }),
+        &term!(lam "x". if ("x") { ("x") true } else { "x" }),
     );
     println!("{}\n{}", t, c);
     println!("env:");
