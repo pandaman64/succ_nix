@@ -413,6 +413,24 @@ impl Constraint {
     fn top() -> Self {
         Constraint::Conj(vec![])
     }
+
+    fn eq(ty1: Type, ty2: Type) -> Self {
+        Constraint::Equal(ty1.into(), ty2.into())
+    }
+
+    fn subset(ty1: Type, ty2: Type) -> Self {
+        Constraint::Subset(ty1.into(), ty2.into())
+    }
+
+    fn conj(cs: Vec<Constraint>) -> Self {
+        // CR pandaman: normalize?
+        Constraint::Conj(cs)
+    }
+
+    fn disj(cs: Vec<Constraint>) -> Self {
+        // CR pandaman: normalize?
+        Constraint::Disj(cs)
+    }
 }
 
 type Environment = HashMap<String, Type>;
@@ -445,13 +463,10 @@ pub fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
             let app_ty = fresh_tvar();
             let arg_ty = fresh_tvar();
             let ret_ty = fresh_tvar();
-            let app_constraint = Constraint::Conj(vec![
-                Constraint::Equal(
-                    Box::new(ty1),
-                    Box::new(Type::fun(arg_ty.clone(), ret_ty.clone())),
-                ),
-                Constraint::Subset(Box::new(ty2), Box::new(arg_ty)),
-                Constraint::Subset(Box::new(app_ty), Box::new(ret_ty.clone())),
+            let app_constraint = Constraint::conj(vec![
+                Constraint::eq(ty1, Type::fun(arg_ty.clone(), ret_ty.clone())),
+                Constraint::subset(ty2, arg_ty),
+                Constraint::subset(app_ty, ret_ty.clone()),
                 c1,
                 c2,
             ]);
@@ -466,17 +481,17 @@ pub fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
             let result_ty = fresh_tvar();
             let result_c = Constraint::Conj(vec![
                 c_c,
-                Constraint::Disj(vec![
+                Constraint::disj(vec![
                     // then
-                    Constraint::Conj(vec![
-                        Constraint::Equal(Box::new(c_ty.clone()), Box::new(Type::tt())),
-                        Constraint::Equal(Box::new(result_ty.clone()), Box::new(t_ty)),
+                    Constraint::conj(vec![
+                        Constraint::eq(c_ty.clone(), Type::tt()),
+                        Constraint::eq(result_ty.clone(), t_ty),
                         t_c,
                     ]),
                     // else
-                    Constraint::Conj(vec![
-                        Constraint::Equal(Box::new(c_ty), Box::new(Type::ff())),
-                        Constraint::Equal(Box::new(result_ty.clone()), Box::new(e_ty)),
+                    Constraint::conj(vec![
+                        Constraint::eq(c_ty, Type::ff()),
+                        Constraint::eq(result_ty.clone(), e_ty),
                         e_c,
                     ]),
                 ]),
