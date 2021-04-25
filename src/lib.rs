@@ -6,34 +6,10 @@ use std::{
 };
 
 mod ast;
+pub mod hir;
 mod parser;
 
 pub use parser::parse_term;
-
-#[derive(Debug, Clone)]
-pub enum Term {
-    True,
-    False,
-    Var(String),
-    Lam(String, Box<Term>),
-    App(Box<Term>, Box<Term>),
-    If(Box<Term>, Box<Term>, Box<Term>),
-}
-
-impl fmt::Display for Term {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Term::*;
-
-        match self {
-            True => f.write_str("tt"),
-            False => f.write_str("ff"),
-            Var(v) => f.write_str(v),
-            Lam(x, t) => write!(f, "(λ{}. {})", x, t),
-            App(t1, t2) => write!(f, "{} {}", t1, t2),
-            If(c, t, e) => write!(f, "if {} then {} else {}", c, t, e),
-        }
-    }
-}
 
 // possible boolean values
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -438,7 +414,7 @@ impl Constraint {
     }
 }
 
-type Environment = HashMap<String, Type>;
+type Environment = HashMap<hir::Id, Type>;
 
 fn fresh_tvar() -> Type {
     static COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -447,13 +423,15 @@ fn fresh_tvar() -> Type {
     Type::var(format!("α{}", current))
 }
 
-pub fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
+pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constraint) {
+    use hir::TermData::*;
+
     match term {
-        Term::True => (Type::tt(), Constraint::top()),
-        Term::False => (Type::ff(), Constraint::top()),
+        True => (Type::tt(), Constraint::top()),
+        False => (Type::ff(), Constraint::top()),
         // assumes every name is in the environment already
-        Term::Var(v) => (env.get(v).unwrap().clone(), Constraint::top()),
-        Term::Lam(x, t) => {
+        Var(v) => (env.get(v).unwrap().clone(), Constraint::top()),
+        Lam(x, t) => {
             let arg_ty = fresh_tvar();
             env.insert(x.clone(), arg_ty.clone());
             let (ret_ty, c) = success_type(env, t);
@@ -461,7 +439,7 @@ pub fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
             // let fun_constraint = Constraint::Equal(Box::new(fun_ty.clone()), Box::new(Type::When(Box::new(Type::Fun(Box::new(arg_ty), Box::new(ty))), c)));
             (Type::fun(arg_ty, ret_ty), c)
         }
-        Term::App(t1, t2) => {
+        App(t1, t2) => {
             let (ty1, c1) = success_type(env, t1);
             let (ty2, c2) = success_type(env, t2);
 
@@ -478,7 +456,7 @@ pub fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
 
             (ret_ty, app_constraint)
         }
-        Term::If(c, t, e) => {
+        If(c, t, e) => {
             let (c_ty, c_c) = success_type(env, c);
             let (t_ty, t_c) = success_type(env, t);
             let (e_ty, e_c) = success_type(env, e);
@@ -691,46 +669,53 @@ impl Solution {
 mod test {
     use super::*;
 
-    fn env() -> Environment {
-        vec![(
-            String::from("not"),
-            Type::fun(Type::boolean(), Type::boolean()),
-        )]
-        .into_iter()
-        .collect()
+    fn env() -> (HashMap<String, hir::Id>, Environment) {
+        let not_id = hir::Id::new();
+        (
+            vec![(String::from("not"), not_id)].into_iter().collect(),
+            vec![(not_id, Type::fun(Type::boolean(), Type::boolean()))]
+                .into_iter()
+                .collect(),
+        )
     }
 
-    fn success(term: Term, mut env: Environment, expected: Type) {
-        let (t, c) = success_type(&mut env, &term);
+    fn run(
+        input: &str,
+        (name_env, mut ty_env): (HashMap<String, hir::Id>, Environment),
+    ) -> (bool, Type) {
+        let ast = parse_term(input).unwrap();
+        let arena = typed_arena::Arena::new();
+        let hir = hir::from_ast(&ast, &arena, &name_env);
+        eprintln!("hir = {}", hir);
+
+        let (t, c) = success_type(&mut ty_env, &hir);
         eprintln!("type = {}\nconstraint = {}", t, c);
         eprintln!("env:");
-        for (v, t) in env.iter() {
-            println!("{} --> {}", v, t);
+        for (v, id) in name_env.iter() {
+            eprintln!("{} --> {}", v, id);
+        }
+        for (v, t) in ty_env.iter() {
+            eprintln!("{} --> {}", v, t);
         }
         let mut sol = Solution::default();
         let result = sol.refine(&c);
-        println!("sol[{}]:", result);
+        eprintln!("sol[{}]:", result);
         for (v, t) in sol.map.iter() {
-            println!("{} --> {}", v, t);
+            eprintln!("{} --> {}", v, t);
         }
+
+        (result, sol.map_ty(&t))
+    }
+
+    fn success(input: &str, env: (HashMap<String, hir::Id>, Environment), expected: Type) {
+        let (result, actual) = run(input, env);
 
         assert!(result);
-        assert_eq!(sol.map_ty(&t), expected);
+        assert_eq!(actual, expected);
     }
 
-    fn fail(term: Term, mut env: Environment) {
-        let (t, c) = success_type(&mut env, &term);
-        eprintln!("type = {}\nconstraint = {}", t, c);
-        eprintln!("env:");
-        for (v, t) in env.iter() {
-            println!("{} --> {}", v, t);
-        }
-        let mut sol = Solution::default();
-        let result = sol.refine(&c);
-        println!("sol[{}]:", result);
-        for (v, t) in sol.map.iter() {
-            println!("{} --> {}", v, t);
-        }
+    fn fail(input: &str, env: (HashMap<String, hir::Id>, Environment)) {
+        let (result, _actual) = run(input, env);
 
         assert!(!result);
     }
@@ -738,7 +723,7 @@ mod test {
     #[test]
     fn test_not_first() {
         success(
-            parse_term("x: y: not x").unwrap(),
+            "x: y: not x",
             env(),
             Type::fun(Type::boolean(), Type::fun(Type::any(), Type::boolean())),
         );
@@ -746,17 +731,13 @@ mod test {
 
     #[test]
     fn test_id() {
-        success(
-            parse_term("x: x").unwrap(),
-            env(),
-            Type::fun(Type::any(), Type::any()),
-        );
+        success("x: x", env(), Type::fun(Type::any(), Type::any()));
     }
 
     #[test]
     fn test_xx() {
         success(
-            parse_term("x: x x").unwrap(),
+            "x: x x",
             env(),
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
@@ -764,13 +745,13 @@ mod test {
 
     #[test]
     fn test_not_id() {
-        fail(parse_term("not (x: x)").unwrap(), env())
+        fail("not (x: x)", env())
     }
 
     #[test]
     fn test_branch() {
         success(
-            parse_term("x: if x then not x else x").unwrap(),
+            "x: if x then not x else x",
             env(),
             Type::fun(Type::boolean(), Type::boolean()),
         );
@@ -781,7 +762,7 @@ mod test {
         // let F be this lambda abstaction.
         // If (F x) terminates, x = ff and F x = ff, which means F is typable with ff -> ff.
         success(
-            parse_term("x: if x then x true else x").unwrap(),
+            "x: if x then x true else x",
             env(),
             Type::fun(Type::ff(), Type::ff()),
         );

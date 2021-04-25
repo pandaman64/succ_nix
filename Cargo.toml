@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 lalrpop-util = "0.19.5"
 regex = "1.4.6"
+typed-arena = "2.0.1"
 
 [dev-dependencies]
 lalrpop = "0.19.5"
