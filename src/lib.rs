@@ -1,3 +1,4 @@
+// 型は単相だと思って全ての名前に対して単相の型を与える感じ
 use std::{
     collections::{BTreeSet, HashMap},
     fmt,
@@ -5,7 +6,7 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-enum Term {
+pub enum Term {
     True,
     False,
     Var(String),
@@ -27,15 +28,6 @@ impl fmt::Display for Term {
             If(c, t, e) => write!(f, "if {} then {} else {}", c, t, e),
         }
     }
-}
-
-macro_rules! term {
-    (true) => { Term::True };
-    (false) => { Term::False };
-    ($v:literal) => { Term::Var(String::from($v)) };
-    (lam $x:literal. $($t:tt)+) => { Term::Lam(String::from($x), Box::new(term!($($t)+))) };
-    (($($t1:tt)+) $($t2:tt)+) => { Term::App(Box::new(term!($($t1)+)), Box::new(term!($($t2)+))) };
-    (if ( $($c:tt)+ ) { $($t:tt)+ } else { $($e:tt)+ }) => { Term::If(Box::new(term!($($c)+)), Box::new(term!($($t)+)), Box::new(term!($($e)+))) };
 }
 
 // possible boolean values
@@ -226,7 +218,7 @@ impl fmt::Display for Type {
 }
 
 impl Type {
-    fn tt() -> Self {
+    pub fn tt() -> Self {
         Type::Union {
             boolean: BoolDomain {
                 tt: true,
@@ -237,7 +229,7 @@ impl Type {
         }
     }
 
-    fn ff() -> Self {
+    pub fn ff() -> Self {
         Type::Union {
             boolean: BoolDomain {
                 tt: false,
@@ -248,7 +240,7 @@ impl Type {
         }
     }
 
-    fn boolean() -> Self {
+    pub fn boolean() -> Self {
         Type::Union {
             boolean: BoolDomain { tt: true, ff: true },
             vars: Default::default(),
@@ -270,7 +262,7 @@ impl Type {
         }
     }
 
-    fn fun(arg: Type, ret: Type) -> Self {
+    pub fn fun(arg: Type, ret: Type) -> Self {
         Type::Union {
             boolean: Default::default(),
             vars: Default::default(),
@@ -287,15 +279,15 @@ impl Type {
         }
     }
 
-    // fn none() -> Self {
-    //     Type::Union {
-    //         boolean: Default::default(),
-    //         vars: Default::default(),
-    //         funs: Default::default(),
-    //     }
-    // }
+    pub fn none() -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            vars: Default::default(),
+            funs: Default::default(),
+        }
+    }
 
-    fn any() -> Self {
+    pub fn any() -> Self {
         Type::Any
     }
 
@@ -432,7 +424,7 @@ fn fresh_tvar() -> Type {
     Type::var(format!("α{}", current))
 }
 
-fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
+pub fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
     match term {
         Term::True => (Type::tt(), Constraint::top()),
         Term::False => (Type::ff(), Constraint::top()),
@@ -496,7 +488,7 @@ fn success_type(env: &mut Environment, term: &Term) -> (Type, Constraint) {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct Solution {
+pub struct Solution {
     // tvar -> ty
     map: HashMap<String, Type>,
 }
@@ -513,7 +505,7 @@ impl fmt::Display for Solution {
 
 impl Solution {
     fn map_tvar(&self, tvar: &str) -> Type {
-        self.map.get(tvar).cloned().unwrap_or(Type::any())
+        self.map.get(tvar).cloned().unwrap_or_else(Type::any)
     }
 
     fn map_fun(&self, fun: &FunType) -> FunType {
@@ -616,7 +608,7 @@ impl Solution {
         }
     }
 
-    fn refine(&mut self, c: &Constraint) -> bool {
+    pub fn refine(&mut self, c: &Constraint) -> bool {
         eprintln!("refine: {}", c);
         use Constraint::*;
 
@@ -675,99 +667,112 @@ impl Solution {
     }
 }
 
-// 型は単相だと思って全ての名前に対して単相の型を与える感じ
-fn main() {
-    println!("{}", term!(true));
-    println!("{}", term!(false));
-    println!("{}", term!("x"));
-    println!("{}", term!(lam "x". "x"));
-    println!("{}", term!((lam "x". ("x") "x") lam "x". "x"));
-    println!("{}", term!(lam "x". ("not") ("not") "x"));
-    println!("{}", term!(lam "x". if ("x") { ("not") "x" } else { "x" }));
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    // let (t, c) = success_type(&mut Environment::default(), &term!((lam "x". "x") true));
-    // println!("{}\n{}\n", t, c);
-
-    // println!();
-    // let mut env = vec![(String::from("not"), Type::fun(Type::boolean(), Type::boolean()))].into_iter().collect();
-    // let (t, c) = success_type(&mut env, &term!(lam "x". lam "y". ("not") "x"));
-    // println!("{}\n{}", t, c);
-    // println!("env:");
-    // for (v, t) in env.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
-    // let mut sol = Solution::default();
-    // let result = sol.refine(&c);
-    // println!("sol[{}]:", result);
-    // for (v, t) in sol.map.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
-
-    println!();
-    let mut env = Environment::default();
-    let (t, c) = success_type(&mut env, &term!(lam "x". ("x") "x"));
-    println!("{}\n{}", t, c);
-    println!("env:");
-    for (v, t) in env.iter() {
-        println!("{} --> {}", v, t);
-    }
-    let mut sol = Solution::default();
-    let result = sol.refine(&c);
-    println!("sol[{}]:", result);
-    for (v, t) in sol.map.iter() {
-        println!("{} --> {}", v, t);
+    macro_rules! term {
+        (true) => { Term::True };
+        (false) => { Term::False };
+        ($v:literal) => { Term::Var(String::from($v)) };
+        (lam $x:literal. $($t:tt)+) => { Term::Lam(String::from($x), Box::new(term!($($t)+))) };
+        (($($t1:tt)+) $($t2:tt)+) => { Term::App(Box::new(term!($($t1)+)), Box::new(term!($($t2)+))) };
+        (if ( $($c:tt)+ ) { $($t:tt)+ } else { $($e:tt)+ }) => { Term::If(Box::new(term!($($c)+)), Box::new(term!($($t)+)), Box::new(term!($($e)+))) };
     }
 
-    // println!();
-    // let mut env = vec![(String::from("not"), Type::fun(Type::boolean(), Type::boolean()))].into_iter().collect();
-    // let (t, c) = success_type(&mut env, &term!(("not") lam "x". "x"));
-    // println!("{}\n{}", t, c);
-    // println!("env:");
-    // for (v, t) in env.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
-    // let mut sol = Solution::default();
-    // let result = sol.refine(&c);
-    // println!("sol[{}]:", result);
-    // for (v, t) in sol.map.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
-
-    // println!();
-    // let mut env = vec![(String::from("not"), Type::fun(Type::boolean(), Type::boolean()))].into_iter().collect();
-    // let (t, c) = success_type(&mut env, &term!(lam "x". if ("x") { ("not") "x" } else { "x" }));
-    // println!("{}\n{}", t, c);
-    // println!("env:");
-    // for (v, t) in env.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
-    // let mut sol = Solution::default();
-    // let result = sol.refine(&c);
-    // println!("sol[{}]:", result);
-    // for (v, t) in sol.map.iter() {
-    //     println!("{} --> {}", v, t);
-    // }
-
-    println!();
-    let mut env = vec![(
-        String::from("not"),
-        Type::fun(Type::boolean(), Type::boolean()),
-    )]
-    .into_iter()
-    .collect();
-    let (t, c) = success_type(
-        &mut env,
-        &term!(lam "x". if ("x") { ("x") true } else { "x" }),
-    );
-    println!("{}\n{}", t, c);
-    println!("env:");
-    for (v, t) in env.iter() {
-        println!("{} --> {}", v, t);
+    fn env() -> Environment {
+        vec![(
+            String::from("not"),
+            Type::fun(Type::boolean(), Type::boolean()),
+        )]
+        .into_iter()
+        .collect()
     }
-    let mut sol = Solution::default();
-    let result = sol.refine(&c);
-    println!("sol[{}]:", result);
-    for (v, t) in sol.map.iter() {
-        println!("{} --> {}", v, t);
+
+    fn success(term: Term, mut env: Environment, expected: Type) {
+        let (t, c) = success_type(&mut env, &term);
+        eprintln!("type = {}\nconstraint = {}", t, c);
+        eprintln!("env:");
+        for (v, t) in env.iter() {
+            println!("{} --> {}", v, t);
+        }
+        let mut sol = Solution::default();
+        let result = sol.refine(&c);
+        println!("sol[{}]:", result);
+        for (v, t) in sol.map.iter() {
+            println!("{} --> {}", v, t);
+        }
+
+        assert!(result);
+        assert_eq!(sol.map_ty(&t), expected);
+    }
+
+    fn fail(term: Term, mut env: Environment) {
+        let (t, c) = success_type(&mut env, &term);
+        eprintln!("type = {}\nconstraint = {}", t, c);
+        eprintln!("env:");
+        for (v, t) in env.iter() {
+            println!("{} --> {}", v, t);
+        }
+        let mut sol = Solution::default();
+        let result = sol.refine(&c);
+        println!("sol[{}]:", result);
+        for (v, t) in sol.map.iter() {
+            println!("{} --> {}", v, t);
+        }
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_not_first() {
+        success(
+            term!(lam "x". lam "y". ("not") "x"),
+            env(),
+            Type::fun(Type::boolean(), Type::fun(Type::any(), Type::boolean())),
+        );
+    }
+
+    #[test]
+    fn test_id() {
+        success(
+            term!(lam "x". "x"),
+            env(),
+            Type::fun(Type::any(), Type::any()),
+        );
+    }
+
+    #[test]
+    fn test_xx() {
+        success(
+            term!(lam "x". ("x") "x"),
+            env(),
+            Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
+        );
+    }
+
+    #[test]
+    fn test_not_id() {
+        fail(term!(("not") lam "x". "x"), env())
+    }
+
+    #[test]
+    fn test_branch() {
+        success(
+            term!(lam "x". if ("x") { ("not") "x" } else { "x" }),
+            env(),
+            Type::fun(Type::boolean(), Type::boolean()),
+        );
+    }
+
+    #[test]
+    fn test_branch_half_succ() {
+        // let F be this lambda abstaction.
+        // If (F x) terminates, x = ff and F x = ff, which means F is typable with ff -> ff.
+        success(
+            term!(lam "x". if ("x") { ("x") true } else { "x" }),
+            env(),
+            Type::fun(Type::ff(), Type::ff()),
+        );
     }
 }
