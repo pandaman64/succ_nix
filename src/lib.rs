@@ -147,6 +147,17 @@ impl FunDomain {
         Self { funs }
     }
 
+    fn merge(&self) -> FunType {
+        // (A -> B) `merge` (C -> D) = (A ∪ C) -> (B ∪ D)
+        // Note that `merge` does NOT give a supremum in general.
+        // e.g. (true -> false) `merge` (false -> true) = boolean -> boolean
+        // but sup { true -> false, false -> true } = { true -> false, false -> true }
+        self.funs.iter().fold(FunType { arg: Type::none().into(), ret: Type::none().into() }, |t1, t2| FunType {
+            arg: t1.arg.sup(&t2.arg).into(),
+            ret: t1.ret.sup(&t2.ret).into(),
+        })
+    }
+
     fn fmt(&self, f: &mut fmt::Formatter, mut first: bool) -> fmt::Result {
         for fun in self.funs.iter() {
             if first {
@@ -585,31 +596,24 @@ impl Solution {
     // and update the solution
     fn update(&mut self, t1: &Type, inf: &Type) {
         eprintln!("update check: {} ⊆ {}", t1, inf);
-        use Type::*;
 
-        // CR pandaman: F1 ∪ F2 ⊂ X --> F1 ⊂ X ∧ F2 ⊂ Xを使う
         if let Some(vars) = t1.as_vars() {
-            if vars.vars.len() == 1 {
-                let v = vars.vars.iter().next().unwrap();
+            // A ∪ B ⊂ X --> A ⊂ X ∧ B ⊂ X
+            for v in vars.vars.iter() {
                 eprintln!("update {} --> {}", v, inf);
                 self.map.insert(v.clone(), inf.clone());
             }
         }
 
         if let Some(funs) = t1.as_funs() {
-            if funs.funs.len() == 1 {
-                let f = funs.funs.iter().next().unwrap();
-                if let Union {
-                    boolean,
-                    vars,
-                    funs,
-                } = inf
-                {
-                    if boolean.is_bottom() && vars.is_bottom() && funs.funs.len() == 1 {
-                        let inf = funs.funs.iter().next().unwrap();
-                        self.update(&f.arg, &inf.arg);
-                        self.update(&f.ret, &inf.ret);
-                    }
+            if let Some(inf_funs) = inf.as_funs() {
+                // this merge introduces inpreciseness
+                let inf = inf_funs.merge();
+                // A ∪ B ⊂ X --> A ⊂ X ∧ B ⊂ X
+                for f in funs.funs.iter() {
+                    // A -> B ⊂ C -> D implies A ⊂ C ∧ B ⊂ D
+                    self.update(&f.arg, &inf.arg);
+                    self.update(&f.ret, &inf.ret);
                 }
             }
         }
