@@ -272,6 +272,40 @@ impl Type {
         Type::Any
     }
 
+    // CR pandaman: as_xxx may sound like just extracing xxx domain without checking bottomness of others
+    pub fn as_boolean(&self) -> Option<&BoolDomain> {
+        match self {
+            Type::Union {
+                boolean,
+                vars,
+                funs,
+            } if vars.is_bottom() && funs.is_bottom() => Some(boolean),
+            _ => None,
+        }
+    }
+
+    pub fn as_vars(&self) -> Option<&VarDomain> {
+        match self {
+            Type::Union {
+                boolean,
+                vars,
+                funs,
+            } if boolean.is_bottom() && funs.is_bottom() => Some(vars),
+            _ => None,
+        }
+    }
+
+    pub fn as_funs(&self) -> Option<&FunDomain> {
+        match self {
+            Type::Union {
+                boolean,
+                vars,
+                funs,
+            } if boolean.is_bottom() && vars.is_bottom() => Some(funs),
+            _ => None,
+        }
+    }
+
     fn is_bottom(&self) -> bool {
         matches!(self, Type::Union { boolean, vars, funs } if boolean.is_bottom() && vars.is_bottom() && funs.is_bottom())
     }
@@ -553,21 +587,17 @@ impl Solution {
         eprintln!("update check: {} ⊆ {}", t1, inf);
         use Type::*;
 
-        if let Union {
-            boolean,
-            vars,
-            funs,
-        } = t1
-        {
-            if !boolean.is_bottom() {
-                return;
-            }
-            if vars.vars.len() == 1 && funs.is_bottom() {
+        // CR pandaman: F1 ∪ F2 ⊂ X --> F1 ⊂ X ∧ F2 ⊂ Xを使う
+        if let Some(vars) = t1.as_vars() {
+            if vars.vars.len() == 1 {
                 let v = vars.vars.iter().next().unwrap();
                 eprintln!("update {} --> {}", v, inf);
                 self.map.insert(v.clone(), inf.clone());
             }
-            if vars.is_bottom() && funs.funs.len() == 1 {
+        }
+
+        if let Some(funs) = t1.as_funs() {
+            if funs.funs.len() == 1 {
                 let f = funs.funs.iter().next().unwrap();
                 if let Union {
                     boolean,
