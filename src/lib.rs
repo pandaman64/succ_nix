@@ -467,7 +467,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
         Var(v) => (env.get(v).unwrap().clone(), Constraint::top()),
         Lam(x, t) => {
             let arg_ty = fresh_tvar();
-            env.insert(x.clone(), arg_ty.clone());
+            env.insert(*x, arg_ty.clone());
             let (ret_ty, c) = success_type(env, t);
 
             // let fun_constraint = Constraint::Equal(Box::new(fun_ty.clone()), Box::new(Type::When(Box::new(Type::Fun(Box::new(arg_ty), Box::new(ty))), c)));

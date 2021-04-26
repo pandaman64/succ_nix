@@ -11,6 +11,12 @@ impl fmt::Display for Id {
     }
 }
 
+impl Default for Id {
+    fn default() -> Self {
+        Id::new()
+    }
+}
+
 impl Id {
     pub fn new() -> Self {
         use std::sync::atomic::{AtomicUsize, Ordering};
