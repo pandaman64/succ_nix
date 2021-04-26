@@ -498,6 +498,13 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             let arg_ty = fresh_tvar();
             let ret_ty = fresh_tvar();
             let app_constraint = Constraint::conj(vec![
+                // CR pandaman: I'm not sure that we should introduce equality here in the presence of function unions.
+                // Consider a case where `Γ ⊢ not: true -> false ∪ false -> true, t: τ`.
+                // In this case, `not t` generates an equality constraint `true -> false ∪ false -> true = α -> β`.
+                // Since this equation does not have an answer, we instead solve an inprecise equation of `boolean -> boolean = α -> β`.
+                // However, we can just admit it does not have an answer, and generate constraint of `α -> β ⊂ true -> false ∪ false -> true`.
+                // The subset constraint diverges from the Success Typing paper, but we think this version is more correct.
+                // (Probably they are not considering function unions, and just taking the `merge` of them)
                 Constraint::eq(ty1, Type::fun(arg_ty.clone(), ret_ty.clone())),
                 Constraint::subset(ty2, arg_ty),
                 Constraint::subset(app_ty, ret_ty.clone()),
@@ -806,5 +813,22 @@ mod test {
             env(),
             Type::fun(Type::ff(), Type::ff()),
         );
+    }
+
+    #[test]
+    fn foo() {
+        let fun_ty = Type::fun(fresh_tvar(), fresh_tvar());
+        let not_ty = Type::fun(Type::tt(), Type::ff()).sup(&Type::fun(Type::ff(), Type::tt()));
+
+        eprintln!("not_ty = {}, fun_ty = {}", not_ty, fun_ty);
+        let mut sol = Solution::default();
+        let c = Constraint::eq(not_ty, fun_ty.clone());
+        let result = sol.refine(&c);
+
+        eprintln!("sol[{}]:", result);
+        for (v, t) in sol.map.iter() {
+            eprintln!("{} --> {}", v, t);
+        }
+        eprintln!("Sol(fun_ty) = {}", sol.map_ty(&fun_ty));
     }
 }
