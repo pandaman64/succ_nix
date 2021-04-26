@@ -152,10 +152,16 @@ impl FunDomain {
         // Note that `merge` does NOT give a supremum in general.
         // e.g. (true -> false) `merge` (false -> true) = boolean -> boolean
         // but sup { true -> false, false -> true } = { true -> false, false -> true }
-        self.funs.iter().fold(FunType { arg: Type::none().into(), ret: Type::none().into() }, |t1, t2| FunType {
-            arg: t1.arg.sup(&t2.arg).into(),
-            ret: t1.ret.sup(&t2.ret).into(),
-        })
+        self.funs.iter().fold(
+            FunType {
+                arg: Type::none().into(),
+                ret: Type::none().into(),
+            },
+            |t1, t2| FunType {
+                arg: t1.arg.sup(&t2.arg).into(),
+                ret: t1.ret.sup(&t2.ret).into(),
+            },
+        )
     }
 
     fn fmt(&self, f: &mut fmt::Formatter, mut first: bool) -> fmt::Result {
