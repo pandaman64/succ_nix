@@ -816,7 +816,7 @@ mod test {
     }
 
     #[test]
-    fn foo() {
+    fn test_inprecise_fun() {
         let fun_ty = Type::fun(fresh_tvar(), fresh_tvar());
         let not_ty = Type::fun(Type::tt(), Type::ff()).sup(&Type::fun(Type::ff(), Type::tt()));
 
@@ -830,5 +830,19 @@ mod test {
             eprintln!("{} --> {}", v, t);
         }
         eprintln!("Sol(fun_ty) = {}", sol.map_ty(&fun_ty));
+    }
+
+    #[test]
+    fn test_parse_if_assoc() {
+        use ast::Term::*;
+
+        assert_eq!(
+            parse_term("if x then y else z w").unwrap(),
+            If(
+                Var("x".into()).into(),
+                Var("y".into()).into(),
+                App(Var("z".into()).into(), Var("w".into()).into()).into()
+            )
+        );
     }
 }
