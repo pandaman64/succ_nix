@@ -520,7 +520,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             let (e_ty, e_c) = success_type(env, e);
 
             let result_ty = fresh_tvar();
-            let result_c = Constraint::Conj(vec![
+            let result_c = Constraint::conj(vec![
                 c_c,
                 Constraint::disj(vec![
                     // then
@@ -539,6 +539,28 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             ]);
 
             (result_ty, result_c)
+        }
+        Let(assignments, e) => {
+            let tvs: Vec<_> = assignments.iter().map(|_| fresh_tvar()).collect();
+            for ((id, _), t) in assignments.iter().zip(tvs.iter()) {
+                env.insert(*id, t.clone());
+            }
+
+            let (tys, cs): (Vec<Type>, Vec<Constraint>) = assignments
+                .iter()
+                .map(|(_, t)| success_type(env, t))
+                .unzip();
+            let (result_ty, result_c) = success_type(env, e);
+
+            let constraints: Vec<_> = tvs
+                .into_iter()
+                .zip(tys.into_iter())
+                .map(|(tv, ty)| Constraint::eq(tv, ty))
+                .chain(cs)
+                .chain(std::iter::once(result_c))
+                .collect();
+
+            (result_ty, Constraint::conj(constraints))
         }
     }
 }
@@ -830,5 +852,19 @@ mod test {
             eprintln!("{} --> {}", v, t);
         }
         eprintln!("Sol(fun_ty) = {}", sol.map_ty(&fun_ty));
+    }
+
+    #[test]
+    fn test_let() {
+        success(
+            "let x = true; y = z: z x; in y",
+            env(),
+            Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
+        )
+    }
+
+    #[test]
+    fn test_let_fail() {
+        fail("let x = true; y = z: z x; in y x", env())
     }
 }

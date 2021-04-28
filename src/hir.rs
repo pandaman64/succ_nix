@@ -29,7 +29,7 @@ impl Id {
 
 // alpha-converted term
 pub type Term<'a> = &'a TermData<'a>;
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum TermData<'a> {
     True,
     False,
@@ -37,19 +37,61 @@ pub enum TermData<'a> {
     Lam(Id, Term<'a>),
     App(Term<'a>, Term<'a>),
     If(Term<'a>, Term<'a>, Term<'a>),
+    Let(Vec<(Id, Term<'a>)>, Term<'a>),
 }
 
 impl fmt::Display for TermData<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt(f, 1)
+    }
+}
+
+fn indent(f: &mut fmt::Formatter<'_>, level: usize) -> fmt::Result {
+    for _ in 0..level {
+        f.write_str("  ")?;
+    }
+
+    Ok(())
+}
+
+impl TermData<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>, level: usize) -> fmt::Result {
         use TermData::*;
 
         match self {
             True => f.write_str("tt"),
             False => f.write_str("ff"),
             Var(v) => write!(f, "{}", v),
-            Lam(x, t) => write!(f, "({}: {})", x, t),
-            App(t1, t2) => write!(f, "{} {}", t1, t2),
-            If(c, t, e) => write!(f, "if {} then {} else {}", c, t, e),
+            Lam(x, t) => {
+                write!(f, "({}: ", x)?;
+                t.fmt(f, level)?;
+                f.write_str(")")
+            }
+            App(t1, t2) => {
+                t1.fmt(f, level)?;
+                f.write_str(" ")?;
+                t2.fmt(f, level)
+            }
+            If(c, t, e) => {
+                f.write_str("if ")?;
+                c.fmt(f, level)?;
+                f.write_str(" then ")?;
+                t.fmt(f, level)?;
+                f.write_str(" else ")?;
+                e.fmt(f, level)
+            }
+            Let(assignments, e) => {
+                f.write_str("let\n")?;
+                for (v, t) in assignments.iter() {
+                    indent(f, level)?;
+                    write!(f, "{} = ", v)?;
+                    t.fmt(f, level + 1)?;
+                    f.write_str(";\n")?;
+                }
+                indent(f, level.saturating_sub(1))?;
+                f.write_str("in ")?;
+                e.fmt(f, level)
+            }
         }
     }
 }
@@ -86,6 +128,19 @@ pub fn from_ast<'a>(
 
             terms.alloc(TermData::If(c, t, e))
         }
-        ast::Term::Let(assignments, e) => todo!(),
+        ast::Term::Let(assignments, e) => {
+            let mut env = env.clone();
+            let ids: Vec<_> = assignments.iter().map(|_| Id::new()).collect();
+            for ((v, _), id) in assignments.iter().zip(ids.iter()) {
+                env.insert(v.clone(), *id);
+            }
+            let assignments = assignments
+                .iter()
+                .zip(ids.iter())
+                .map(|((_, t), id)| (*id, from_ast(t, terms, &env)))
+                .collect();
+
+            terms.alloc(TermData::Let(assignments, from_ast(e, terms, &env)))
+        }
     }
 }
