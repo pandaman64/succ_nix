@@ -99,6 +99,18 @@ impl fmt::Display for FunType {
 }
 
 impl FunType {
+    fn sup(&self, other: &Self) -> Self {
+        // this calculation is imprecise in a sense.
+        // See notes/function_union.md
+        let arg = self.arg.sup(&other.arg);
+        let ret = self.ret.sup(&other.ret);
+
+        Self {
+            arg: arg.into(),
+            ret: ret.into(),
+        }
+    }
+
     fn inf(&self, other: &Self) -> Option<Self> {
         // since f: A1 -> R1 and f: A2 -> R2,
         // f x ≠ ⊥ implies x ∈ A1 ∧ x ∈ A2 ∧ f x ∈ R1 ∧ f x ∈ R2.
@@ -111,8 +123,8 @@ impl FunType {
             None
         } else {
             Some(Self {
-                arg: Box::new(arg),
-                ret: Box::new(ret),
+                arg: arg.into(),
+                ret: ret.into(),
             })
         }
     }
@@ -120,52 +132,35 @@ impl FunType {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FunDomain {
-    funs: BTreeSet<FunType>,
+    fun: Option<FunType>,
 }
 
 impl FunDomain {
     fn is_bottom(&self) -> bool {
-        self.funs.is_empty()
+        self.fun.is_none()
     }
 
     fn sup(&self, other: &Self) -> Self {
-        // CR pandaman: minimization/normalization is needed here
-        let funs = self.funs.union(&other.funs).cloned().collect();
-        Self { funs }
+        let fun = match (&self.fun, &other.fun) {
+            (Some(f1), Some(f2)) => Some(f1.sup(f2)),
+            (Some(f), _) | (_, Some(f)) => Some(f.clone()),
+            (None, None) => None,
+        };
+
+        Self { fun }
     }
 
     fn inf(&self, other: &Self) -> Self {
-        // (A ∪ B) ∩ (C ∪ D) = (A ∩ C) ∪ (A ∩ D) ∪ (B ∩ C) ∪ (B ∩ D)
-        let mut funs = BTreeSet::new();
-        for fun1 in self.funs.iter() {
-            for fun2 in other.funs.iter() {
-                if let Some(fun) = fun1.inf(fun2) {
-                    funs.insert(fun);
-                }
-            }
-        }
-        Self { funs }
-    }
+        let fun = match (&self.fun, &other.fun) {
+            (Some(f1), Some(f2)) => f1.inf(f2),
+            (None, _) | (_, None) => None,
+        };
 
-    fn merge(&self) -> FunType {
-        // (A -> B) `merge` (C -> D) = (A ∪ C) -> (B ∪ D)
-        // Note that `merge` does NOT give a supremum in general.
-        // e.g. (true -> false) `merge` (false -> true) = boolean -> boolean
-        // but sup { true -> false, false -> true } = { true -> false, false -> true }
-        self.funs.iter().fold(
-            FunType {
-                arg: Type::none().into(),
-                ret: Type::none().into(),
-            },
-            |t1, t2| FunType {
-                arg: t1.arg.sup(&t2.arg).into(),
-                ret: t1.ret.sup(&t2.ret).into(),
-            },
-        )
+        Self { fun }
     }
 
     fn fmt(&self, f: &mut fmt::Formatter, mut first: bool) -> fmt::Result {
-        for fun in self.funs.iter() {
+        for fun in self.fun.iter() {
             if first {
                 first = false;
                 write!(f, "{}", fun)?;
@@ -183,7 +178,7 @@ pub enum Type {
     Union {
         boolean: BoolDomain,
         vars: VarDomain,
-        funs: FunDomain,
+        fun: FunDomain,
     },
     // Bottom,
 }
@@ -195,19 +190,15 @@ impl fmt::Display for Type {
         match self {
             Any => f.write_str("any"),
             Union { .. } if self.is_bottom() => f.write_str("∅"),
-            Union {
-                boolean,
-                vars,
-                funs,
-            } => {
+            Union { boolean, vars, fun } => {
                 if !boolean.is_bottom() {
                     write!(f, "{}", boolean)?;
                 }
                 if !vars.is_bottom() {
                     vars.fmt(f, boolean.is_bottom())?;
                 }
-                if !funs.is_bottom() {
-                    funs.fmt(f, boolean.is_bottom() && vars.is_bottom())?;
+                if !fun.is_bottom() {
+                    fun.fmt(f, boolean.is_bottom() && vars.is_bottom())?;
                 }
                 Ok(())
             }
@@ -223,7 +214,7 @@ impl Type {
                 ff: false,
             },
             vars: Default::default(),
-            funs: Default::default(),
+            fun: Default::default(),
         }
     }
 
@@ -234,7 +225,7 @@ impl Type {
                 ff: true,
             },
             vars: Default::default(),
-            funs: Default::default(),
+            fun: Default::default(),
         }
     }
 
@@ -242,7 +233,7 @@ impl Type {
         Type::Union {
             boolean: BoolDomain { tt: true, ff: true },
             vars: Default::default(),
-            funs: Default::default(),
+            fun: Default::default(),
         }
     }
 
@@ -256,7 +247,7 @@ impl Type {
                     vars
                 },
             },
-            funs: Default::default(),
+            fun: Default::default(),
         }
     }
 
@@ -264,15 +255,11 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             vars: Default::default(),
-            funs: FunDomain {
-                funs: {
-                    let mut funs = BTreeSet::new();
-                    funs.insert(FunType {
-                        arg: arg.into(),
-                        ret: ret.into(),
-                    });
-                    funs
-                },
+            fun: FunDomain {
+                fun: Some(FunType {
+                    arg: arg.into(),
+                    ret: ret.into(),
+                }),
             },
         }
     }
@@ -281,7 +268,7 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             vars: Default::default(),
-            funs: Default::default(),
+            fun: Default::default(),
         }
     }
 
@@ -292,39 +279,33 @@ impl Type {
     // CR pandaman: as_xxx may sound like just extracing xxx domain without checking bottomness of others
     pub fn as_boolean(&self) -> Option<&BoolDomain> {
         match self {
-            Type::Union {
-                boolean,
-                vars,
-                funs,
-            } if vars.is_bottom() && funs.is_bottom() => Some(boolean),
+            Type::Union { boolean, vars, fun } if vars.is_bottom() && fun.is_bottom() => {
+                Some(boolean)
+            }
             _ => None,
         }
     }
 
     pub fn as_vars(&self) -> Option<&VarDomain> {
         match self {
-            Type::Union {
-                boolean,
-                vars,
-                funs,
-            } if boolean.is_bottom() && funs.is_bottom() => Some(vars),
+            Type::Union { boolean, vars, fun } if boolean.is_bottom() && fun.is_bottom() => {
+                Some(vars)
+            }
             _ => None,
         }
     }
 
-    pub fn as_funs(&self) -> Option<&FunDomain> {
+    pub fn as_fun(&self) -> Option<&FunType> {
         match self {
-            Type::Union {
-                boolean,
-                vars,
-                funs,
-            } if boolean.is_bottom() && vars.is_bottom() => Some(funs),
+            Type::Union { boolean, vars, fun } if boolean.is_bottom() && vars.is_bottom() => {
+                fun.fun.as_ref()
+            }
             _ => None,
         }
     }
 
     fn is_bottom(&self) -> bool {
-        matches!(self, Type::Union { boolean, vars, funs } if boolean.is_bottom() && vars.is_bottom() && funs.is_bottom())
+        matches!(self, Type::Union { boolean, vars, fun } if boolean.is_bottom() && vars.is_bottom() && fun.is_bottom())
     }
 
     fn is_subtype(&self, other: &Type) -> bool {
@@ -343,23 +324,19 @@ impl Type {
                 Union {
                     boolean: b1,
                     vars: v1,
-                    funs: f1,
+                    fun: f1,
                 },
                 Union {
                     boolean: b2,
                     vars: v2,
-                    funs: f2,
+                    fun: f2,
                 },
             ) => {
                 let boolean = b1.sup(b2);
                 let vars = v1.sup(v2);
-                let funs = f1.sup(f2);
+                let fun = f1.sup(f2);
 
-                Union {
-                    boolean,
-                    vars,
-                    funs,
-                }
+                Union { boolean, vars, fun }
             }
         }
     }
@@ -376,12 +353,12 @@ impl Type {
                 Union {
                     boolean: b1,
                     vars: v1,
-                    funs: f1,
+                    fun: f1,
                 },
                 Union {
                     boolean: b2,
                     vars: v2,
-                    funs: f2,
+                    fun: f2,
                 },
             ) => {
                 assert!(v1.is_bottom());
@@ -389,13 +366,9 @@ impl Type {
 
                 let boolean = b1.inf(b2);
                 let vars = Default::default();
-                let funs = f1.inf(f2);
+                let fun = f1.inf(f2);
 
-                Union {
-                    boolean,
-                    vars,
-                    funs,
-                }
+                Union { boolean, vars, fun }
             }
         }
     }
@@ -600,13 +573,13 @@ impl Solution {
             Union {
                 boolean,
                 vars,
-                funs,
+                fun: funs,
             } => {
                 // (A ∪ B) ∪ (C ∪ D) = A ∪ B ∪ C ∪ D
                 let mut ty = Type::Union {
                     boolean: *boolean,
                     vars: Default::default(),
-                    funs: Default::default(),
+                    fun: Default::default(),
                 };
 
                 for v in vars.vars.iter() {
@@ -616,7 +589,7 @@ impl Solution {
                     }
                 }
 
-                for fun in funs.funs.iter() {
+                for fun in funs.fun.iter() {
                     let fun = self.map_fun(fun);
                     ty = ty.sup(&Type::fun(*fun.arg, *fun.ret));
                 }
@@ -640,16 +613,11 @@ impl Solution {
             }
         }
 
-        if let Some(funs) = t1.as_funs() {
-            if let Some(inf_funs) = inf.as_funs() {
-                // this merge introduces inpreciseness
-                let inf = inf_funs.merge();
-                // A ∪ B ⊂ X --> A ⊂ X ∧ B ⊂ X
-                for f in funs.funs.iter() {
-                    // A -> B ⊂ C -> D implies A ⊂ C ∧ B ⊂ D
-                    self.update(&f.arg, &inf.arg);
-                    self.update(&f.ret, &inf.ret);
-                }
+        if let Some(fun) = t1.as_fun() {
+            if let Some(inf_fun) = inf.as_fun() {
+                // A -> B ⊂ C -> D implies A ⊂ C ∧ B ⊂ D
+                self.update(&fun.arg, &inf_fun.arg);
+                self.update(&fun.ret, &inf_fun.ret);
             }
         }
     }
