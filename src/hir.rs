@@ -86,5 +86,6 @@ pub fn from_ast<'a>(
 
             terms.alloc(TermData::If(c, t, e))
         }
+        ast::Term::Let(assignments, e) => todo!(),
     }
 }

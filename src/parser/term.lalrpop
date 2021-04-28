@@ -6,6 +6,7 @@ pub Term: Term = {
     <AppTerm>,
     <v:Id> ":" <t:Term> => Term::Lam(v, t.into()),
     "if" <c:Term> "then" <t:Term> "else" <e:Term> => Term::If(c.into(), t.into(), e.into()),
+    "let" <assignments: Assignment*> "in" <e: Term> => Term::Let(assignments, e.into()),
 };
 
 AppTerm: Term = {
@@ -22,4 +23,8 @@ AtomicTerm: Term = {
 
 Id: String = {
     r"[a-zA-Z][a-zA-Z0-9]*" => <>.into(),
+}
+
+Assignment: (String, Term) = {
+    <v: Id> "=" <e: Term> ";" => (v, e),
 }
