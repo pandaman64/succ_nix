@@ -9,6 +9,7 @@ pub enum Term {
     App(Box<Term>, Box<Term>),
     If(Box<Term>, Box<Term>, Box<Term>),
     Let(Vec<(String, Term)>, Box<Term>),
+    AttrSet(Vec<(String, Term)>),
 }
 
 impl fmt::Display for Term {
@@ -62,6 +63,17 @@ impl Term {
                 indent(f, level.saturating_sub(1))?;
                 f.write_str("in ")?;
                 e.fmt(f, level)
+            }
+            AttrSet(assignments) => {
+                f.write_str("{")?;
+                for (v, t) in assignments.iter() {
+                    indent(f, level)?;
+                    write!(f, "{} = ", v)?;
+                    t.fmt(f, level + 1)?;
+                    f.write_str(";¥n")?;
+                }
+                indent(f, level.saturating_sub(1))?;
+                f.write_str("}")
             }
         }
     }

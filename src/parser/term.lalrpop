@@ -18,6 +18,7 @@ AtomicTerm: Term = {
     "true" => Term::True,
     "false" => Term::False,
     Id => Term::Var(<>).into(),
+    "{" <assignments: Assignment*> "}" => Term::AttrSet(assignments),
     "(" <Term> ")",
 }
 

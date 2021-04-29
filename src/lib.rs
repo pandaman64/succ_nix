@@ -1,6 +1,6 @@
 // 型は単相だと思って全ての名前に対して単相の型を与える感じ
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     sync::atomic::{self, AtomicUsize},
 };
@@ -159,16 +159,107 @@ impl FunDomain {
         Self { fun }
     }
 
-    fn fmt(&self, f: &mut fmt::Formatter, mut first: bool) -> fmt::Result {
-        for fun in self.fun.iter() {
-            if first {
-                first = false;
-                write!(f, "{}", fun)?;
-            } else {
-                write!(f, " ∪ {}", fun)?;
+    fn fmt(&self, f: &mut fmt::Formatter, first: bool) -> fmt::Result {
+        match &self.fun {
+            None => Ok(()),
+            Some(fun) => {
+                if !first {
+                    f.write_str(" ∪ ")?;
+                }
+                write!(f, "{}", fun)
             }
         }
-        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AttrSetType {
+    attrs: BTreeMap<String, Type>,
+}
+
+impl fmt::Display for AttrSetType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("{ ")?;
+        for (name, ty) in self.attrs.iter() {
+            write!(f, "{} = {}; ", name, ty)?;
+        }
+        f.write_str("}")
+    }
+}
+
+impl AttrSetType {
+    fn sup(&self, other: &Self) -> Self {
+        let attrs = self
+            .attrs
+            .iter()
+            .map(|(v, t1)| {
+                let t = match other.attrs.get(v) {
+                    Some(t2) => t1.sup(t2),
+                    None => t1.clone(),
+                };
+                (v.clone(), t)
+            })
+            .collect();
+
+        Self { attrs }
+    }
+
+    fn inf(&self, other: &Self) -> Self {
+        let attrs = self
+            .attrs
+            .iter()
+            .map(|(v, t1)| {
+                let t = match other.attrs.get(v) {
+                    Some(t2) => t1.inf(t2),
+                    None => t1.clone(),
+                };
+                (v.clone(), t)
+            })
+            .collect();
+
+        Self { attrs }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AttrSetDomain {
+    attrs: Option<AttrSetType>,
+}
+
+impl AttrSetDomain {
+    fn is_bottom(&self) -> bool {
+        self.attrs.is_none()
+    }
+
+    fn sup(&self, other: &Self) -> Self {
+        let attrs = match (&self.attrs, &other.attrs) {
+            (Some(a1), Some(a2)) => Some(a1.sup(a2)),
+            (Some(a), _) | (_, Some(a)) => Some(a.clone()),
+            (None, None) => None,
+        };
+
+        Self { attrs }
+    }
+
+    fn inf(&self, other: &Self) -> Self {
+        let attrs = match (&self.attrs, &other.attrs) {
+            (Some(a1), Some(a2)) => Some(a1.inf(a2)),
+            (None, _) | (_, None) => None,
+        };
+
+        Self { attrs }
+    }
+
+    fn fmt(&self, f: &mut fmt::Formatter, first: bool) -> fmt::Result {
+        match &self.attrs {
+            None => Ok(()),
+            Some(attrs) => {
+                if !first {
+                    f.write_str(" ∪ ")?;
+                }
+                write!(f, "{}", attrs)
+            }
+        }
     }
 }
 
@@ -179,6 +270,7 @@ pub enum Type {
         boolean: BoolDomain,
         vars: VarDomain,
         fun: FunDomain,
+        attrs: AttrSetDomain,
     },
     // Bottom,
 }
@@ -190,7 +282,12 @@ impl fmt::Display for Type {
         match self {
             Any => f.write_str("any"),
             Union { .. } if self.is_bottom() => f.write_str("∅"),
-            Union { boolean, vars, fun } => {
+            Union {
+                boolean,
+                vars,
+                fun,
+                attrs,
+            } => {
                 if !boolean.is_bottom() {
                     write!(f, "{}", boolean)?;
                 }
@@ -199,6 +296,12 @@ impl fmt::Display for Type {
                 }
                 if !fun.is_bottom() {
                     fun.fmt(f, boolean.is_bottom() && vars.is_bottom())?;
+                }
+                if !attrs.is_bottom() {
+                    attrs.fmt(
+                        f,
+                        boolean.is_bottom() && vars.is_bottom() && fun.is_bottom(),
+                    )?;
                 }
                 Ok(())
             }
@@ -215,6 +318,7 @@ impl Type {
             },
             vars: Default::default(),
             fun: Default::default(),
+            attrs: Default::default(),
         }
     }
 
@@ -226,6 +330,7 @@ impl Type {
             },
             vars: Default::default(),
             fun: Default::default(),
+            attrs: Default::default(),
         }
     }
 
@@ -234,6 +339,7 @@ impl Type {
             boolean: BoolDomain { tt: true, ff: true },
             vars: Default::default(),
             fun: Default::default(),
+            attrs: Default::default(),
         }
     }
 
@@ -248,6 +354,7 @@ impl Type {
                 },
             },
             fun: Default::default(),
+            attrs: Default::default(),
         }
     }
 
@@ -261,6 +368,16 @@ impl Type {
                     ret: ret.into(),
                 }),
             },
+            attrs: Default::default(),
+        }
+    }
+
+    pub fn attr_set(attrs: AttrSetType) -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            vars: Default::default(),
+            fun: Default::default(),
+            attrs: AttrSetDomain { attrs: Some(attrs) },
         }
     }
 
@@ -269,6 +386,7 @@ impl Type {
             boolean: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
+            attrs: Default::default(),
         }
     }
 
@@ -279,33 +397,62 @@ impl Type {
     // CR pandaman: as_xxx may sound like just extracing xxx domain without checking bottomness of others
     pub fn as_boolean(&self) -> Option<&BoolDomain> {
         match self {
-            Type::Union { boolean, vars, fun } if vars.is_bottom() && fun.is_bottom() => {
-                Some(boolean)
-            }
+            Type::Union {
+                boolean,
+                vars,
+                fun,
+                attrs,
+            } if vars.is_bottom() && fun.is_bottom() && attrs.is_bottom() => Some(boolean),
             _ => None,
         }
     }
 
     pub fn as_vars(&self) -> Option<&VarDomain> {
         match self {
-            Type::Union { boolean, vars, fun } if boolean.is_bottom() && fun.is_bottom() => {
-                Some(vars)
-            }
+            Type::Union {
+                boolean,
+                vars,
+                fun,
+                attrs,
+            } if boolean.is_bottom() && fun.is_bottom() && attrs.is_bottom() => Some(vars),
             _ => None,
         }
     }
 
     pub fn as_fun(&self) -> Option<&FunType> {
         match self {
-            Type::Union { boolean, vars, fun } if boolean.is_bottom() && vars.is_bottom() => {
-                fun.fun.as_ref()
-            }
+            Type::Union {
+                boolean,
+                vars,
+                fun,
+                attrs,
+            } if boolean.is_bottom() && vars.is_bottom() && attrs.is_bottom() => fun.fun.as_ref(),
+            _ => None,
+        }
+    }
+
+    pub fn as_attrs(&self) -> Option<&AttrSetType> {
+        match self {
+            Type::Union {
+                boolean,
+                vars,
+                fun,
+                attrs,
+            } if boolean.is_bottom() && vars.is_bottom() && fun.is_bottom() => attrs.attrs.as_ref(),
             _ => None,
         }
     }
 
     fn is_bottom(&self) -> bool {
-        matches!(self, Type::Union { boolean, vars, fun } if boolean.is_bottom() && vars.is_bottom() && fun.is_bottom())
+        matches!(
+            self,
+            Type::Union {
+                boolean,
+                vars,
+                fun,
+                attrs
+            } if boolean.is_bottom() && vars.is_bottom() && fun.is_bottom() && attrs.is_bottom()
+        )
     }
 
     fn is_subtype(&self, other: &Type) -> bool {
@@ -325,18 +472,26 @@ impl Type {
                     boolean: b1,
                     vars: v1,
                     fun: f1,
+                    attrs: a1,
                 },
                 Union {
                     boolean: b2,
                     vars: v2,
                     fun: f2,
+                    attrs: a2,
                 },
             ) => {
                 let boolean = b1.sup(b2);
                 let vars = v1.sup(v2);
                 let fun = f1.sup(f2);
+                let attrs = a1.sup(a2);
 
-                Union { boolean, vars, fun }
+                Union {
+                    boolean,
+                    vars,
+                    fun,
+                    attrs,
+                }
             }
         }
     }
@@ -354,11 +509,13 @@ impl Type {
                     boolean: b1,
                     vars: v1,
                     fun: f1,
+                    attrs: a1,
                 },
                 Union {
                     boolean: b2,
                     vars: v2,
                     fun: f2,
+                    attrs: a2,
                 },
             ) => {
                 assert!(v1.is_bottom());
@@ -367,8 +524,14 @@ impl Type {
                 let boolean = b1.inf(b2);
                 let vars = Default::default();
                 let fun = f1.inf(f2);
+                let attrs = a1.inf(a2);
 
-                Union { boolean, vars, fun }
+                Union {
+                    boolean,
+                    vars,
+                    fun,
+                    attrs,
+                }
             }
         }
     }
@@ -535,6 +698,15 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (result_ty, Constraint::conj(constraints))
         }
+        AttrSet(attrs) => {
+            let (tys, cs): (Vec<Type>, Vec<Constraint>) =
+                attrs.iter().map(|(_, t)| success_type(env, t)).unzip();
+            let result_ty = Type::attr_set(AttrSetType {
+                attrs: attrs.keys().cloned().zip(tys.iter().cloned()).collect(),
+            });
+
+            (result_ty, Constraint::conj(cs))
+        }
     }
 }
 
@@ -566,6 +738,19 @@ impl Solution {
         }
     }
 
+    fn map_attrs(&self, ty: &AttrSetType) -> AttrSetType {
+        let attrs = ty
+            .attrs
+            .iter()
+            .map(|(v, t)| {
+                let t = self.map_ty(t);
+                (v.clone(), t)
+            })
+            .collect();
+
+        AttrSetType { attrs }
+    }
+
     fn map_ty(&self, ty: &Type) -> Type {
         use Type::*;
 
@@ -573,13 +758,15 @@ impl Solution {
             Union {
                 boolean,
                 vars,
-                fun: funs,
+                fun,
+                attrs,
             } => {
                 // (A ∪ B) ∪ (C ∪ D) = A ∪ B ∪ C ∪ D
                 let mut ty = Type::Union {
                     boolean: *boolean,
                     vars: Default::default(),
                     fun: Default::default(),
+                    attrs: Default::default(),
                 };
 
                 for v in vars.vars.iter() {
@@ -589,9 +776,14 @@ impl Solution {
                     }
                 }
 
-                for fun in funs.fun.iter() {
+                if let Some(fun) = &fun.fun {
                     let fun = self.map_fun(fun);
                     ty = ty.sup(&Type::fun(*fun.arg, *fun.ret));
+                }
+
+                if let Some(attrs) = &attrs.attrs {
+                    let attrs = self.map_attrs(attrs);
+                    ty = ty.sup(&Type::attr_set(attrs));
                 }
 
                 ty
@@ -614,6 +806,7 @@ impl Solution {
         }
 
         if let Some(fun) = t1.as_fun() {
+            // CR pandaman: for inf, just extracting the corresponding domain is enough?
             if let Some(inf_fun) = inf.as_fun() {
                 // A -> B ⊂ C -> D implies A ⊂ C ∧ B ⊂ D
                 self.update(&fun.arg, &inf_fun.arg);
@@ -829,6 +1022,13 @@ mod test {
             env(),
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_let_xx() {
+        // infinite loop. something is wrong
+        success("let x = x x; in x", env(), Type::any())
     }
 
     #[test]

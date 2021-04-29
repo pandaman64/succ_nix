@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+};
 
 use crate::ast;
 
@@ -38,6 +41,7 @@ pub enum TermData<'a> {
     App(Term<'a>, Term<'a>),
     If(Term<'a>, Term<'a>, Term<'a>),
     Let(Vec<(Id, Term<'a>)>, Term<'a>),
+    AttrSet(BTreeMap<String, Term<'a>>),
 }
 
 impl fmt::Display for TermData<'_> {
@@ -92,6 +96,17 @@ impl TermData<'_> {
                 f.write_str("in ")?;
                 e.fmt(f, level)
             }
+            AttrSet(assignments) => {
+                f.write_str("{")?;
+                for (v, t) in assignments.iter() {
+                    indent(f, level)?;
+                    write!(f, "{} = ", v)?;
+                    t.fmt(f, level + 1)?;
+                    f.write_str(";¥n")?;
+                }
+                indent(f, level.saturating_sub(1))?;
+                f.write_str("}")
+            }
         }
     }
 }
@@ -141,6 +156,14 @@ pub fn from_ast<'a>(
                 .collect();
 
             terms.alloc(TermData::Let(assignments, from_ast(e, terms, &env)))
+        }
+        ast::Term::AttrSet(assignments) => {
+            let attrs = assignments
+                .iter()
+                .map(|(v, t)| (v.clone(), from_ast(t, terms, env)))
+                .collect();
+
+            terms.alloc(TermData::AttrSet(attrs))
         }
     }
 }
