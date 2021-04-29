@@ -10,8 +10,13 @@ pub Term: Term = {
 };
 
 AppTerm: Term = {
+    <PathTerm>,
+    <t1:AppTerm> <t2:PathTerm> => Term::App(t1.into(), t2.into()),
+}
+
+PathTerm: Term = {
     <AtomicTerm>,
-    <t1:AppTerm> <t2:AtomicTerm> => Term::App(t1.into(), t2.into()),
+    <t: PathTerm> "." <f: Id> => Term::Path(t.into(), f),
 }
 
 AtomicTerm: Term = {

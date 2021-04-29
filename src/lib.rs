@@ -707,6 +707,25 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (result_ty, Constraint::conj(cs))
         }
+        Path(t, f) => {
+            let (t_ty, t_c) = success_type(env, t);
+            let t_tf = fresh_tvar();
+            let constraints = Constraint::conj(vec![
+                Constraint::subset(
+                    Type::attr_set(AttrSetType {
+                        attrs: {
+                            let mut attrs = BTreeMap::new();
+                            attrs.insert(f.clone(), t_tf.clone());
+                            attrs
+                        },
+                    }),
+                    t_ty,
+                ),
+                t_c,
+            ]);
+
+            (t_tf, constraints)
+        }
     }
 }
 
@@ -811,6 +830,16 @@ impl Solution {
                 // A -> B ⊂ C -> D implies A ⊂ C ∧ B ⊂ D
                 self.update(&fun.arg, &inf_fun.arg);
                 self.update(&fun.ret, &inf_fun.ret);
+            }
+        }
+
+        if let Some(attrs) = t1.as_attrs() {
+            if let Some(inf_attrs) = inf.as_attrs() {
+                for (v, t1) in attrs.attrs.iter() {
+                    if let Some(inf) = inf_attrs.attrs.get(v) {
+                        self.update(t1, inf);
+                    }
+                }
             }
         }
     }
@@ -1034,5 +1063,15 @@ mod test {
     #[test]
     fn test_let_fail() {
         fail("let x = true; y = z: z x; in y x", env())
+    }
+
+    #[test]
+    fn test_attr_set() {
+        success("{ x = true; y = z: z; }.x", env(), Type::tt());
+        success(
+            "{ x = true; y = z: z; }.y",
+            env(),
+            Type::fun(Type::any(), Type::any()),
+        );
     }
 }

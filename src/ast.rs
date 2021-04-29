@@ -10,6 +10,7 @@ pub enum Term {
     If(Box<Term>, Box<Term>, Box<Term>),
     Let(Vec<(String, Term)>, Box<Term>),
     AttrSet(Vec<(String, Term)>),
+    Path(Box<Term>, String),
 }
 
 impl fmt::Display for Term {
@@ -65,15 +66,19 @@ impl Term {
                 e.fmt(f, level)
             }
             AttrSet(assignments) => {
-                f.write_str("{")?;
+                f.write_str("{\n")?;
                 for (v, t) in assignments.iter() {
                     indent(f, level)?;
                     write!(f, "{} = ", v)?;
                     t.fmt(f, level + 1)?;
-                    f.write_str(";¥n")?;
+                    f.write_str(";\n")?;
                 }
                 indent(f, level.saturating_sub(1))?;
                 f.write_str("}")
+            }
+            Path(t, field) => {
+                t.fmt(f, level)?;
+                write!(f, ".{}", field)
             }
         }
     }

@@ -42,6 +42,7 @@ pub enum TermData<'a> {
     If(Term<'a>, Term<'a>, Term<'a>),
     Let(Vec<(Id, Term<'a>)>, Term<'a>),
     AttrSet(BTreeMap<String, Term<'a>>),
+    Path(Term<'a>, String),
 }
 
 impl fmt::Display for TermData<'_> {
@@ -97,15 +98,19 @@ impl TermData<'_> {
                 e.fmt(f, level)
             }
             AttrSet(assignments) => {
-                f.write_str("{")?;
+                f.write_str("{\n")?;
                 for (v, t) in assignments.iter() {
                     indent(f, level)?;
                     write!(f, "{} = ", v)?;
                     t.fmt(f, level + 1)?;
-                    f.write_str(";¥n")?;
+                    f.write_str(";\n")?;
                 }
                 indent(f, level.saturating_sub(1))?;
                 f.write_str("}")
+            }
+            Path(t, field) => {
+                t.fmt(f, level)?;
+                write!(f, ".{}", field)
             }
         }
     }
@@ -164,6 +169,11 @@ pub fn from_ast<'a>(
                 .collect();
 
             terms.alloc(TermData::AttrSet(attrs))
+        }
+        ast::Term::Path(t, f) => {
+            let t = from_ast(t, terms, env);
+
+            terms.alloc(TermData::Path(t, f.clone()))
         }
     }
 }
