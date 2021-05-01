@@ -1055,9 +1055,16 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_let_xx() {
+    fn test_let_infinite_types() {
+        // CR pandaman: 再帰型が体系に必要だと思います。
         // infinite loop. something is wrong
-        success("let x = x x; in x", env(), Type::any())
+        success("let x = x x; in x", env(), Type::any());
+        // from TAPL
+        success(
+            "let hungry = x: hungry; in hungry",
+            env(),
+            Type::fun(Type::any(), Type::any()),
+        );
     }
 
     #[test]
@@ -1072,6 +1079,24 @@ mod test {
             "{ x = true; y = z: z; }.y",
             env(),
             Type::fun(Type::any(), Type::any()),
+        );
+    }
+
+    #[test]
+    fn test_rec() {
+        success(
+            "let f = x: if x then x else f (not x); in f",
+            env(),
+            Type::fun(Type::boolean(), Type::tt()),
+        );
+    }
+
+    #[test]
+    fn test_fix() {
+        success(
+            "let y = f: f (y f); in y",
+            env(),
+            Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
     }
 }
