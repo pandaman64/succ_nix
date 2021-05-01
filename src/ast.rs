@@ -1,11 +1,42 @@
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Argument {
+    Var(String),
+    AttrSet(Option<String>, Vec<(String, Option<Term>)>),
+}
+
+impl fmt::Display for Argument {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn fmt_attr_set(f: &mut fmt::Formatter<'_>, a: &[(String, Option<Term>)]) -> fmt::Result {
+            f.write_str("{")?;
+            for (v, t) in a.iter() {
+                write!(f, " {}", v)?;
+                if let Some(t) = t {
+                    write!(f, " ? {}", t)?;
+                }
+                f.write_str(",")?;
+            }
+            f.write_str(" }")
+        }
+
+        match self {
+            Argument::Var(v) => write!(f, "{}", v),
+            Argument::AttrSet(Some(arg), a) => {
+                write!(f, "{} @ ", arg)?;
+                fmt_attr_set(f, a)
+            }
+            Argument::AttrSet(None, a) => fmt_attr_set(f, a),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Term {
     True,
     False,
     Var(String),
-    Lam(String, Box<Term>),
+    Lam(Argument, Box<Term>),
     App(Box<Term>, Box<Term>),
     If(Box<Term>, Box<Term>, Box<Term>),
     Let(Vec<(String, Term)>, Box<Term>),

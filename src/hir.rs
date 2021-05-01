@@ -43,6 +43,7 @@ pub enum TermData<'a> {
     Let(Vec<(Id, Term<'a>)>, Term<'a>),
     AttrSet(BTreeMap<String, Term<'a>>),
     Path(Term<'a>, String),
+    Or(Term<'a>, Term<'a>),
 }
 
 impl fmt::Display for TermData<'_> {
@@ -112,28 +113,83 @@ impl TermData<'_> {
                 t.fmt(f, level)?;
                 write!(f, ".{}", field)
             }
+            Or(t1, t2) => {
+                t1.fmt(f, level)?;
+                f.write_str(" or ")?;
+                t2.fmt(f, level)
+            }
         }
     }
 }
 
+pub type AlphaEnv<'a> = HashMap<String, Term<'a>>;
+
 pub fn from_ast<'a>(
     ast: &ast::Term,
     terms: &'a typed_arena::Arena<TermData<'a>>,
-    env: &HashMap<String, Id>,
+    env: &AlphaEnv<'a>,
 ) -> Term<'a> {
     match ast {
         ast::Term::True => terms.alloc(TermData::True),
         ast::Term::False => terms.alloc(TermData::False),
-        ast::Term::Var(v) => terms.alloc(TermData::Var(*env.get(v).unwrap())),
-        ast::Term::Lam(v, t) => {
-            let id = Id::new();
-            let t = {
-                let mut env = env.clone();
-                env.insert(v.clone(), id);
-                from_ast(t, terms, &env)
-            };
+        ast::Term::Var(v) => env.get(v).unwrap(),
+        ast::Term::Lam(arg, t) => {
+            match arg {
+                ast::Argument::Var(v) => {
+                    let arg_id = Id::new();
 
-            terms.alloc(TermData::Lam(id, t))
+                    let mut env = env.clone();
+                    env.insert(v.clone(), terms.alloc(TermData::Var(arg_id)));
+
+                    let t = from_ast(t, terms, &env);
+
+                    terms.alloc(TermData::Lam(arg_id, t))
+                }
+                ast::Argument::AttrSet(args_str, attr_set) => {
+                    // Given `args @ { v1 ? t1, ... }: t`, we desugar it to
+                    // ```
+                    // args:
+                    // let
+                    //   vn = args.vn or tn;
+                    //   ...
+                    // in t
+                    // ```
+                    // Nix allows referring names in the same argument attribute set. e.g. `{ a, b ? a } ...`.
+                    // And the desugaring reproduces this behavior.
+                    let args_id = Id::new();
+                    let args_expr = &*terms.alloc(TermData::Var(args_id));
+                    let vn_ids: Vec<_> = attr_set.iter().map(|_| Id::new()).collect();
+
+                    let mut env = env.clone();
+                    if let Some(args_str) = args_str {
+                        env.insert(args_str.clone(), args_expr);
+                    }
+                    for ((v, _), id) in attr_set.iter().zip(vn_ids.iter()) {
+                        env.insert(v.clone(), terms.alloc(TermData::Var(*id)));
+                    }
+
+                    let assignments = vn_ids
+                        .iter()
+                        .zip(attr_set.iter())
+                        .map(|(id, (v, t))| {
+                            let path_expr = terms.alloc(TermData::Path(args_expr, v.clone()));
+                            let t = match t {
+                                Some(t) => {
+                                    terms.alloc(TermData::Or(path_expr, from_ast(t, terms, &env)))
+                                }
+                                None => path_expr,
+                            };
+                            (*id, &*t)
+                        })
+                        .collect();
+                    let t = from_ast(t, terms, &env);
+
+                    terms.alloc(TermData::Lam(
+                        args_id,
+                        terms.alloc(TermData::Let(assignments, t)),
+                    ))
+                }
+            }
         }
         ast::Term::App(t1, t2) => {
             let t1 = from_ast(t1, terms, env);
@@ -149,11 +205,13 @@ pub fn from_ast<'a>(
             terms.alloc(TermData::If(c, t, e))
         }
         ast::Term::Let(assignments, e) => {
-            let mut env = env.clone();
             let ids: Vec<_> = assignments.iter().map(|_| Id::new()).collect();
+
+            let mut env = env.clone();
             for ((v, _), id) in assignments.iter().zip(ids.iter()) {
-                env.insert(v.clone(), *id);
+                env.insert(v.clone(), terms.alloc(TermData::Var(*id)));
             }
+
             let assignments = assignments
                 .iter()
                 .zip(ids.iter())

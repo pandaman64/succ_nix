@@ -1,13 +1,32 @@
-use crate::ast::Term;
+use crate::ast::{Argument, Term};
 
 grammar;
 
 pub Term: Term = {
     <AppTerm>,
-    <v:Id> ":" <t:Term> => Term::Lam(v, t.into()),
+    <arg: Argument> ":" <t:Term> => Term::Lam(arg, t.into()),
     "if" <c:Term> "then" <t:Term> "else" <e:Term> => Term::If(c.into(), t.into(), e.into()),
     "let" <assignments: Assignment*> "in" <e: Term> => Term::Let(assignments, e.into()),
-};
+}
+
+Argument: Argument = {
+    <v: Id> => Argument::Var(v),
+    <a: AttrSetArgument> => Argument::AttrSet(None, a),
+    <v: Id> "@" <a: AttrSetArgument> => Argument::AttrSet(Some(v), a),
+}
+
+AttrSetArgument: Vec<(String, Option<Term>)> = {
+    "{" <mut v: (<Id> <DefaultArg> ",")*> <last: (<Id> <DefaultArg>)?> "}" => {
+        if let Some(last) = last {
+            v.push(last);
+        }
+        v
+    },
+}
+
+DefaultArg: Option<Term> = {
+    <t: ("?" <Term>)?> => t,
+}
 
 AppTerm: Term = {
     <PathTerm>,

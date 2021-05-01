@@ -623,7 +623,6 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             env.insert(*x, arg_ty.clone());
             let (ret_ty, c) = success_type(env, t);
 
-            // let fun_constraint = Constraint::Equal(Box::new(fun_ty.clone()), Box::new(Type::When(Box::new(Type::Fun(Box::new(arg_ty), Box::new(ty))), c)));
             (Type::fun(arg_ty, ret_ty), c)
         }
         App(t1, t2) => {
@@ -725,6 +724,15 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             ]);
 
             (t_tf, constraints)
+        }
+        Or(t1, t2) => {
+            // precisely, `or` operator introduces an implication, like
+            // if `x.e` exists, `x.e or t ⊆ type(x.e)`, and otherwise, `x.e or t ⊆ type(t)`.
+            // here, we just over-approximate these sets via `type(x.e) ∪ type(t)`.
+            let (t1_ty, t1_c) = success_type(env, t1);
+            let (t2_ty, t2_c) = success_type(env, t2);
+
+            (t1_ty.sup(&t2_ty), Constraint::conj(vec![t1_c, t2_c]))
         }
     }
 }
@@ -943,15 +951,22 @@ mod test {
         (name_env, mut ty_env): (HashMap<String, hir::Id>, Environment),
     ) -> (bool, Type) {
         let ast = parse_term(input).unwrap();
-        let arena = typed_arena::Arena::new();
-        let hir = hir::from_ast(&ast, &arena, &name_env);
+        let terms = typed_arena::Arena::new();
+        let alpha_env = name_env
+            .into_iter()
+            .map(|(v, id)| {
+                let t = terms.alloc(hir::TermData::Var(id));
+                (v, &*t)
+            })
+            .collect();
+        let hir = hir::from_ast(&ast, &terms, &alpha_env);
         eprintln!("hir = {}", hir);
 
         let (t, c) = success_type(&mut ty_env, &hir);
         eprintln!("type = {}\nconstraint = {}", t, c);
         eprintln!("env:");
-        for (v, id) in name_env.iter() {
-            eprintln!("{} --> {}", v, id);
+        for (v, t) in alpha_env.iter() {
+            eprintln!("{} --> {}", v, t);
         }
         for (v, t) in ty_env.iter() {
             eprintln!("{} --> {}", v, t);
