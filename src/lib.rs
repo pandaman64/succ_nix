@@ -985,7 +985,7 @@ mod test {
         let (result, actual) = run(input, env);
 
         assert!(result);
-        assert_eq!(actual, expected);
+        assert_eq!(actual, expected, "\n{} ≠ {}", actual, expected);
     }
 
     fn fail(input: &str, env: (HashMap<String, hir::Id>, Environment)) {
@@ -1113,5 +1113,37 @@ mod test {
             env(),
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
+    }
+
+    #[test]
+    fn test_attr_set_arg() {
+        success(
+            "x: x.y",
+            env(),
+            Type::fun(
+                Type::attr_set(AttrSetType {
+                    attrs: {
+                        let mut attrs = BTreeMap::new();
+                        attrs.insert("y".into(), Type::any());
+                        attrs
+                    },
+                }),
+                Type::any(),
+            ),
+        );
+        success(
+            "{ y }: y",
+            env(),
+            Type::fun(
+                Type::attr_set(AttrSetType {
+                    attrs: {
+                        let mut attrs = BTreeMap::new();
+                        attrs.insert("y".into(), Type::any());
+                        attrs
+                    },
+                }),
+                Type::any(),
+            ),
+        )
     }
 }
