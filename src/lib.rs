@@ -15,12 +15,23 @@ mod test {
     use std::collections::{BTreeMap, HashMap};
 
     fn env() -> (HashMap<String, hir::Id>, Environment) {
-        let not_id = hir::Id::new();
+        let not_ty = Type::fun(Type::boolean(), Type::boolean());
+        let plus_ty = Type::fun(Type::integer(), Type::fun(Type::integer(), Type::integer()));
+        let builtins_id = hir::Id::new();
+        let builtins_ty = Type::attr_set(AttrSetType {
+            attrs: {
+                let mut attrs = BTreeMap::new();
+                attrs.insert("not".into(), not_ty);
+                attrs.insert("plus".into(), plus_ty);
+                attrs
+            },
+            rest: Type::none().into(),
+        });
         (
-            vec![(String::from("not"), not_id)].into_iter().collect(),
-            vec![(not_id, Type::fun(Type::boolean(), Type::boolean()))]
+            vec![(String::from("builtins"), builtins_id)]
                 .into_iter()
                 .collect(),
+            vec![(builtins_id, builtins_ty)].into_iter().collect(),
         )
     }
 
@@ -75,7 +86,7 @@ mod test {
     #[test]
     fn test_not_first() {
         success(
-            "x: y: not x",
+            "x: y: builtins.not x",
             env(),
             Type::fun(Type::boolean(), Type::fun(Type::any(), Type::boolean())),
         );
@@ -97,13 +108,13 @@ mod test {
 
     #[test]
     fn test_not_id() {
-        fail("not (x: x)", env())
+        fail("builtins.not (x: x)", env())
     }
 
     #[test]
     fn test_branch() {
         success(
-            "x: if x then not x else x",
+            "x: if x then builtins.not x else x",
             env(),
             Type::fun(Type::boolean(), Type::boolean()),
         );
@@ -161,7 +172,7 @@ mod test {
     #[test]
     fn test_rec() {
         success(
-            "let f = x: if x then x else f (not x); in f",
+            "let f = x: if x then x else f (builtins.not x); in f",
             env(),
             Type::fun(Type::boolean(), Type::tt()),
         );
@@ -210,6 +221,31 @@ mod test {
                     rest: Type::any().into(),
                 }),
                 Type::any(),
+            ),
+        )
+    }
+
+    #[test]
+    fn test_integer() {
+        success(
+            "x: y: builtins.plus x y",
+            env(),
+            Type::fun(Type::integer(), Type::fun(Type::integer(), Type::integer())),
+        );
+        success(
+            "{ x, y }: builtins.plus x y",
+            env(),
+            Type::fun(
+                Type::attr_set(AttrSetType {
+                    attrs: {
+                        let mut attrs = BTreeMap::new();
+                        attrs.insert("x".into(), Type::integer());
+                        attrs.insert("y".into(), Type::integer());
+                        attrs
+                    },
+                    rest: Type::any().into(),
+                }),
+                Type::integer(),
             ),
         )
     }
