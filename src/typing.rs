@@ -644,6 +644,10 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
     match term {
         True => (Type::tt(), Constraint::top()),
         False => (Type::ff(), Constraint::top()),
+        Integer => (Type::integer(), Constraint::top()),
+        List => (Type::list(), Constraint::top()),
+        Path => (Type::list(), Constraint::top()),
+        String => (Type::string(), Constraint::top()),
         // assumes every name is in the environment already
         Var(v) => (env.get(v).unwrap().clone(), Constraint::top()),
         Lam(x, t) => {
@@ -735,7 +739,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (result_ty, Constraint::conj(cs))
         }
-        Path(t, x) => {
+        Select(t, x) => {
             let (t_ty, t_c) = success_type(env, t);
             let tx_ty = fresh_tvar();
             let constraints = Constraint::conj(vec![

@@ -41,7 +41,7 @@ pub enum Term {
     If(Box<Term>, Box<Term>, Box<Term>),
     Let(Vec<(String, Term)>, Box<Term>),
     AttrSet(Vec<(String, Term)>),
-    Path(Box<Term>, String),
+    Select(Box<Term>, String),
 }
 
 impl fmt::Display for Term {
@@ -107,7 +107,7 @@ impl Term {
                 indent(f, level.saturating_sub(1))?;
                 f.write_str("}")
             }
-            Path(t, field) => {
+            Select(t, field) => {
                 t.fmt(f, level)?;
                 write!(f, ".{}", field)
             }

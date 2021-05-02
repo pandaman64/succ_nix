@@ -36,13 +36,17 @@ pub type Term<'a> = &'a TermData<'a>;
 pub enum TermData<'a> {
     True,
     False,
+    Integer,
+    List,
+    Path,
+    String,
     Var(Id),
     Lam(Id, Term<'a>),
     App(Term<'a>, Term<'a>),
     If(Term<'a>, Term<'a>, Term<'a>),
     Let(Vec<(Id, Term<'a>)>, Term<'a>),
     AttrSet(BTreeMap<String, Term<'a>>),
-    Path(Term<'a>, String),
+    Select(Term<'a>, String),
     Or(Term<'a>, Term<'a>),
 }
 
@@ -67,6 +71,10 @@ impl TermData<'_> {
         match self {
             True => f.write_str("tt"),
             False => f.write_str("ff"),
+            Integer => f.write_str("integer"),
+            List => f.write_str("list"),
+            Path => f.write_str("path"),
+            String => f.write_str("string"),
             Var(v) => write!(f, "{}", v),
             Lam(x, t) => {
                 write!(f, "({}: ", x)?;
@@ -109,7 +117,7 @@ impl TermData<'_> {
                 indent(f, level.saturating_sub(1))?;
                 f.write_str("}")
             }
-            Path(t, field) => {
+            Select(t, field) => {
                 t.fmt(f, level)?;
                 write!(f, ".{}", field)
             }
@@ -172,12 +180,12 @@ pub fn from_ast<'a>(
                         .iter()
                         .zip(attr_set.iter())
                         .map(|(id, (v, t))| {
-                            let path_expr = terms.alloc(TermData::Path(args_expr, v.clone()));
+                            let select_expr = terms.alloc(TermData::Select(args_expr, v.clone()));
                             let t = match t {
                                 Some(t) => {
-                                    terms.alloc(TermData::Or(path_expr, from_ast(t, terms, &env)))
+                                    terms.alloc(TermData::Or(select_expr, from_ast(t, terms, &env)))
                                 }
-                                None => path_expr,
+                                None => select_expr,
                             };
                             (*id, &*t)
                         })
@@ -228,10 +236,10 @@ pub fn from_ast<'a>(
 
             terms.alloc(TermData::AttrSet(attrs))
         }
-        ast::Term::Path(t, f) => {
+        ast::Term::Select(t, f) => {
             let t = from_ast(t, terms, env);
 
-            terms.alloc(TermData::Path(t, f.clone()))
+            terms.alloc(TermData::Select(t, f.clone()))
         }
     }
 }

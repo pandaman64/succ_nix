@@ -1,12 +1,12 @@
 // auto-generated: "lalrpop 0.19.5"
-// sha3: d2109887d7e2c62950a1d2171378597ab4564c916d898d5c775b4ef79b21f171
+// sha3: 8eb84747499aaed9e56c3c8e988e7e6d767038744564fb2241ab12c6e74fd7d1
 use crate::ast::{Argument, Term};
 #[allow(unused_extern_crates)]
 extern crate lalrpop_util as __lalrpop_util;
 #[allow(unused_imports)]
 use self::__lalrpop_util::state_machine as __state_machine;
-extern crate alloc;
 extern crate core;
+extern crate alloc;
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 mod __parse__Term {
@@ -1042,7 +1042,7 @@ mod __parse__Term {
         _: core::marker::PhantomData<(&'input ())>,
     ) -> (usize, usize)
     {
-        // AppTerm = PathTerm => ActionFn(10);
+        // AppTerm = SelectTerm => ActionFn(10);
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1059,7 +1059,7 @@ mod __parse__Term {
         _: core::marker::PhantomData<(&'input ())>,
     ) -> (usize, usize)
     {
-        // AppTerm = AppTerm, PathTerm => ActionFn(11);
+        // AppTerm = AppTerm, SelectTerm => ActionFn(11);
         assert!(__symbols.len() >= 2);
         let __sym1 = __pop_Variant1(__symbols);
         let __sym0 = __pop_Variant1(__symbols);
@@ -1466,7 +1466,7 @@ mod __parse__Term {
         _: core::marker::PhantomData<(&'input ())>,
     ) -> (usize, usize)
     {
-        // PathTerm = AtomicTerm => ActionFn(12);
+        // SelectTerm = AtomicTerm => ActionFn(12);
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1483,7 +1483,7 @@ mod __parse__Term {
         _: core::marker::PhantomData<(&'input ())>,
     ) -> (usize, usize)
     {
-        // PathTerm = PathTerm, ".", Id => ActionFn(13);
+        // SelectTerm = SelectTerm, ".", Id => ActionFn(13);
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant11(__symbols);
         let __sym1 = __pop_Variant0(__symbols);
@@ -1636,27 +1636,44 @@ mod __intern_token {
 pub(crate) use self::__lalrpop_util::lexer::Token;
 
 #[allow(unused_variables)]
-fn __action0<'input>(input: &'input str, (_, __0, _): (usize, Term, usize)) -> Term {
+fn __action0<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, Term, usize),
+) -> Term
+{
     __0
 }
 
 #[allow(unused_variables)]
-fn __action1<'input>(input: &'input str, (_, __0, _): (usize, Term, usize)) -> Term {
+fn __action1<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, Term, usize),
+) -> Term
+{
     __0
 }
 
 #[allow(unused_variables)]
-fn __action2<'input>(
+fn __action2<
+    'input,
+>(
     input: &'input str,
     (_, arg, _): (usize, Argument, usize),
     (_, _, _): (usize, &'input str, usize),
     (_, t, _): (usize, Term, usize),
-) -> Term {
+) -> Term
+{
     Term::Lam(arg, t.into())
 }
 
 #[allow(unused_variables)]
-fn __action3<'input>(
+fn __action3<
+    'input,
+>(
     input: &'input str,
     (_, _, _): (usize, &'input str, usize),
     (_, c, _): (usize, Term, usize),
@@ -1664,52 +1681,71 @@ fn __action3<'input>(
     (_, t, _): (usize, Term, usize),
     (_, _, _): (usize, &'input str, usize),
     (_, e, _): (usize, Term, usize),
-) -> Term {
+) -> Term
+{
     Term::If(c.into(), t.into(), e.into())
 }
 
 #[allow(unused_variables)]
-fn __action4<'input>(
+fn __action4<
+    'input,
+>(
     input: &'input str,
     (_, _, _): (usize, &'input str, usize),
     (_, assignments, _): (usize, alloc::vec::Vec<(String, Term)>, usize),
     (_, _, _): (usize, &'input str, usize),
     (_, e, _): (usize, Term, usize),
-) -> Term {
+) -> Term
+{
     Term::Let(assignments, e.into())
 }
 
 #[allow(unused_variables)]
-fn __action5<'input>(input: &'input str, (_, v, _): (usize, String, usize)) -> Argument {
+fn __action5<
+    'input,
+>(
+    input: &'input str,
+    (_, v, _): (usize, String, usize),
+) -> Argument
+{
     Argument::Var(v)
 }
 
 #[allow(unused_variables)]
-fn __action6<'input>(
+fn __action6<
+    'input,
+>(
     input: &'input str,
     (_, a, _): (usize, Vec<(String, Option<Term>)>, usize),
-) -> Argument {
+) -> Argument
+{
     Argument::AttrSet(None, a)
 }
 
 #[allow(unused_variables)]
-fn __action7<'input>(
+fn __action7<
+    'input,
+>(
     input: &'input str,
     (_, v, _): (usize, String, usize),
     (_, _, _): (usize, &'input str, usize),
     (_, a, _): (usize, Vec<(String, Option<Term>)>, usize),
-) -> Argument {
+) -> Argument
+{
     Argument::AttrSet(Some(v), a)
 }
 
 #[allow(unused_variables)]
-fn __action8<'input>(
+fn __action8<
+    'input,
+>(
     input: &'input str,
     (_, _, _): (usize, &'input str, usize),
     (_, mut v, _): (usize, alloc::vec::Vec<(String, Option<Term>)>, usize),
     (_, last, _): (usize, core::option::Option<(String, Option<Term>)>, usize),
     (_, _, _): (usize, &'input str, usize),
-) -> Vec<(String, Option<Term>)> {
+) -> Vec<(String, Option<Term>)>
+{
     {
         if let Some(last) = last {
             v.push(last);
@@ -1719,481 +1755,743 @@ fn __action8<'input>(
 }
 
 #[allow(unused_variables)]
-fn __action9<'input>(
+fn __action9<
+    'input,
+>(
     input: &'input str,
     (_, t, _): (usize, core::option::Option<Term>, usize),
-) -> Option<Term> {
+) -> Option<Term>
+{
     t
 }
 
 #[allow(unused_variables)]
-fn __action10<'input>(input: &'input str, (_, __0, _): (usize, Term, usize)) -> Term {
+fn __action10<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, Term, usize),
+) -> Term
+{
     __0
 }
 
 #[allow(unused_variables)]
-fn __action11<'input>(
+fn __action11<
+    'input,
+>(
     input: &'input str,
     (_, t1, _): (usize, Term, usize),
     (_, t2, _): (usize, Term, usize),
-) -> Term {
+) -> Term
+{
     Term::App(t1.into(), t2.into())
 }
 
 #[allow(unused_variables)]
-fn __action12<'input>(input: &'input str, (_, __0, _): (usize, Term, usize)) -> Term {
+fn __action12<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, Term, usize),
+) -> Term
+{
     __0
 }
 
 #[allow(unused_variables)]
-fn __action13<'input>(
+fn __action13<
+    'input,
+>(
     input: &'input str,
     (_, t, _): (usize, Term, usize),
     (_, _, _): (usize, &'input str, usize),
     (_, f, _): (usize, String, usize),
-) -> Term {
-    Term::Path(t.into(), f)
+) -> Term
+{
+    Term::Select(t.into(), f)
 }
 
 #[allow(unused_variables)]
-fn __action14<'input>(input: &'input str, (_, __0, _): (usize, &'input str, usize)) -> Term {
+fn __action14<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, &'input str, usize),
+) -> Term
+{
     Term::True
 }
 
 #[allow(unused_variables)]
-fn __action15<'input>(input: &'input str, (_, __0, _): (usize, &'input str, usize)) -> Term {
+fn __action15<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, &'input str, usize),
+) -> Term
+{
     Term::False
 }
 
 #[allow(unused_variables)]
-fn __action16<'input>(input: &'input str, (_, __0, _): (usize, String, usize)) -> Term {
+fn __action16<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, String, usize),
+) -> Term
+{
     Term::Var(__0).into()
 }
 
 #[allow(unused_variables)]
-fn __action17<'input>(
+fn __action17<
+    'input,
+>(
     input: &'input str,
     (_, _, _): (usize, &'input str, usize),
     (_, assignments, _): (usize, alloc::vec::Vec<(String, Term)>, usize),
     (_, _, _): (usize, &'input str, usize),
-) -> Term {
+) -> Term
+{
     Term::AttrSet(assignments)
 }
 
 #[allow(unused_variables)]
-fn __action18<'input>(
+fn __action18<
+    'input,
+>(
     input: &'input str,
     (_, _, _): (usize, &'input str, usize),
     (_, __0, _): (usize, Term, usize),
     (_, _, _): (usize, &'input str, usize),
-) -> Term {
+) -> Term
+{
     __0
 }
 
 #[allow(unused_variables)]
-fn __action19<'input>(input: &'input str, (_, __0, _): (usize, &'input str, usize)) -> String {
+fn __action19<
+    'input,
+>(
+    input: &'input str,
+    (_, __0, _): (usize, &'input str, usize),
+) -> String
+{
     __0.into()
 }
 
 #[allow(unused_variables)]
-fn __action20<'input>(
+fn __action20<
+    'input,
+>(
     input: &'input str,
     (_, v, _): (usize, String, usize),
     (_, _, _): (usize, &'input str, usize),
     (_, e, _): (usize, Term, usize),
     (_, _, _): (usize, &'input str, usize),
-) -> (String, Term) {
+) -> (String, Term)
+{
     (v, e)
 }
 
 #[allow(unused_variables)]
-fn __action21<'input>(
+fn __action21<
+    'input,
+>(
     input: &'input str,
     (_, __0, _): (usize, Term, usize),
-) -> core::option::Option<Term> {
+) -> core::option::Option<Term>
+{
     Some(__0)
 }
 
 #[allow(unused_variables)]
-fn __action22<'input>(
+fn __action22<
+    'input,
+>(
     input: &'input str,
     __lookbehind: &usize,
     __lookahead: &usize,
-) -> core::option::Option<Term> {
+) -> core::option::Option<Term>
+{
     None
 }
 
 #[allow(unused_variables)]
-fn __action23<'input>(
+fn __action23<
+    'input,
+>(
     input: &'input str,
     (_, _, _): (usize, &'input str, usize),
     (_, __0, _): (usize, Term, usize),
-) -> Term {
+) -> Term
+{
     __0
 }
 
 #[allow(unused_variables)]
-fn __action24<'input>(
+fn __action24<
+    'input,
+>(
     input: &'input str,
     (_, __0, _): (usize, (String, Option<Term>), usize),
-) -> core::option::Option<(String, Option<Term>)> {
+) -> core::option::Option<(String, Option<Term>)>
+{
     Some(__0)
 }
 
 #[allow(unused_variables)]
-fn __action25<'input>(
+fn __action25<
+    'input,
+>(
     input: &'input str,
     __lookbehind: &usize,
     __lookahead: &usize,
-) -> core::option::Option<(String, Option<Term>)> {
+) -> core::option::Option<(String, Option<Term>)>
+{
     None
 }
 
 #[allow(unused_variables)]
-fn __action26<'input>(
+fn __action26<
+    'input,
+>(
     input: &'input str,
     (_, __0, _): (usize, String, usize),
     (_, __1, _): (usize, Option<Term>, usize),
-) -> (String, Option<Term>) {
+) -> (String, Option<Term>)
+{
     (__0, __1)
 }
 
 #[allow(unused_variables)]
-fn __action27<'input>(
+fn __action27<
+    'input,
+>(
     input: &'input str,
     __lookbehind: &usize,
     __lookahead: &usize,
-) -> alloc::vec::Vec<(String, Option<Term>)> {
+) -> alloc::vec::Vec<(String, Option<Term>)>
+{
     alloc::vec![]
 }
 
 #[allow(unused_variables)]
-fn __action28<'input>(
+fn __action28<
+    'input,
+>(
     input: &'input str,
     (_, v, _): (usize, alloc::vec::Vec<(String, Option<Term>)>, usize),
-) -> alloc::vec::Vec<(String, Option<Term>)> {
+) -> alloc::vec::Vec<(String, Option<Term>)>
+{
     v
 }
 
 #[allow(unused_variables)]
-fn __action29<'input>(
+fn __action29<
+    'input,
+>(
     input: &'input str,
     (_, __0, _): (usize, String, usize),
     (_, __1, _): (usize, Option<Term>, usize),
     (_, _, _): (usize, &'input str, usize),
-) -> (String, Option<Term>) {
+) -> (String, Option<Term>)
+{
     (__0, __1)
 }
 
 #[allow(unused_variables)]
-fn __action30<'input>(
+fn __action30<
+    'input,
+>(
     input: &'input str,
     __lookbehind: &usize,
     __lookahead: &usize,
-) -> alloc::vec::Vec<(String, Term)> {
+) -> alloc::vec::Vec<(String, Term)>
+{
     alloc::vec![]
 }
 
 #[allow(unused_variables)]
-fn __action31<'input>(
+fn __action31<
+    'input,
+>(
     input: &'input str,
     (_, v, _): (usize, alloc::vec::Vec<(String, Term)>, usize),
-) -> alloc::vec::Vec<(String, Term)> {
+) -> alloc::vec::Vec<(String, Term)>
+{
     v
 }
 
 #[allow(unused_variables)]
-fn __action32<'input>(
+fn __action32<
+    'input,
+>(
     input: &'input str,
     (_, __0, _): (usize, (String, Term), usize),
-) -> alloc::vec::Vec<(String, Term)> {
+) -> alloc::vec::Vec<(String, Term)>
+{
     alloc::vec![__0]
 }
 
 #[allow(unused_variables)]
-fn __action33<'input>(
+fn __action33<
+    'input,
+>(
     input: &'input str,
     (_, v, _): (usize, alloc::vec::Vec<(String, Term)>, usize),
     (_, e, _): (usize, (String, Term), usize),
-) -> alloc::vec::Vec<(String, Term)> {
-    {
-        let mut v = v;
-        v.push(e);
-        v
-    }
+) -> alloc::vec::Vec<(String, Term)>
+{
+    { let mut v = v; v.push(e); v }
 }
 
 #[allow(unused_variables)]
-fn __action34<'input>(
+fn __action34<
+    'input,
+>(
     input: &'input str,
     (_, __0, _): (usize, (String, Option<Term>), usize),
-) -> alloc::vec::Vec<(String, Option<Term>)> {
+) -> alloc::vec::Vec<(String, Option<Term>)>
+{
     alloc::vec![__0]
 }
 
 #[allow(unused_variables)]
-fn __action35<'input>(
+fn __action35<
+    'input,
+>(
     input: &'input str,
     (_, v, _): (usize, alloc::vec::Vec<(String, Option<Term>)>, usize),
     (_, e, _): (usize, (String, Option<Term>), usize),
-) -> alloc::vec::Vec<(String, Option<Term>)> {
-    {
-        let mut v = v;
-        v.push(e);
-        v
-    }
+) -> alloc::vec::Vec<(String, Option<Term>)>
+{
+    { let mut v = v; v.push(e); v }
 }
 
 #[allow(unused_variables)]
-fn __action36<'input>(
+fn __action36<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, Term, usize),
-) -> core::option::Option<Term> {
+) -> core::option::Option<Term>
+{
     let __start0 = __0.0.clone();
     let __end0 = __1.2.clone();
-    let __temp0 = __action23(input, __0, __1);
+    let __temp0 = __action23(
+        input,
+        __0,
+        __1,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action21(input, __temp0)
+    __action21(
+        input,
+        __temp0,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action37<'input>(
+fn __action37<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, Term, usize),
-) -> Option<Term> {
+) -> Option<Term>
+{
     let __start0 = __0.0.clone();
     let __end0 = __1.2.clone();
-    let __temp0 = __action36(input, __0, __1);
+    let __temp0 = __action36(
+        input,
+        __0,
+        __1,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action9(input, __temp0)
+    __action9(
+        input,
+        __temp0,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action38<'input>(
+fn __action38<
+    'input,
+>(
     input: &'input str,
     __lookbehind: &usize,
     __lookahead: &usize,
-) -> Option<Term> {
+) -> Option<Term>
+{
     let __start0 = __lookbehind.clone();
     let __end0 = __lookahead.clone();
-    let __temp0 = __action22(input, &__start0, &__end0);
+    let __temp0 = __action22(
+        input,
+        &__start0,
+        &__end0,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action9(input, __temp0)
+    __action9(
+        input,
+        __temp0,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action39<'input>(
+fn __action39<
+    'input,
+>(
     input: &'input str,
     __0: (usize, String, usize),
     __1: (usize, Option<Term>, usize),
     __2: (usize, &'input str, usize),
-) -> alloc::vec::Vec<(String, Option<Term>)> {
+) -> alloc::vec::Vec<(String, Option<Term>)>
+{
     let __start0 = __0.0.clone();
     let __end0 = __2.2.clone();
-    let __temp0 = __action29(input, __0, __1, __2);
+    let __temp0 = __action29(
+        input,
+        __0,
+        __1,
+        __2,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action34(input, __temp0)
+    __action34(
+        input,
+        __temp0,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action40<'input>(
+fn __action40<
+    'input,
+>(
     input: &'input str,
     __0: (usize, alloc::vec::Vec<(String, Option<Term>)>, usize),
     __1: (usize, String, usize),
     __2: (usize, Option<Term>, usize),
     __3: (usize, &'input str, usize),
-) -> alloc::vec::Vec<(String, Option<Term>)> {
+) -> alloc::vec::Vec<(String, Option<Term>)>
+{
     let __start0 = __1.0.clone();
     let __end0 = __3.2.clone();
-    let __temp0 = __action29(input, __1, __2, __3);
+    let __temp0 = __action29(
+        input,
+        __1,
+        __2,
+        __3,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action35(input, __0, __temp0)
+    __action35(
+        input,
+        __0,
+        __temp0,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action41<'input>(
+fn __action41<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, core::option::Option<(String, Option<Term>)>, usize),
     __2: (usize, &'input str, usize),
-) -> Vec<(String, Option<Term>)> {
+) -> Vec<(String, Option<Term>)>
+{
     let __start0 = __0.2.clone();
     let __end0 = __1.0.clone();
-    let __temp0 = __action27(input, &__start0, &__end0);
+    let __temp0 = __action27(
+        input,
+        &__start0,
+        &__end0,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action8(input, __0, __temp0, __1, __2)
+    __action8(
+        input,
+        __0,
+        __temp0,
+        __1,
+        __2,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action42<'input>(
+fn __action42<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, alloc::vec::Vec<(String, Option<Term>)>, usize),
     __2: (usize, core::option::Option<(String, Option<Term>)>, usize),
     __3: (usize, &'input str, usize),
-) -> Vec<(String, Option<Term>)> {
+) -> Vec<(String, Option<Term>)>
+{
     let __start0 = __1.0.clone();
     let __end0 = __1.2.clone();
-    let __temp0 = __action28(input, __1);
+    let __temp0 = __action28(
+        input,
+        __1,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action8(input, __0, __temp0, __2, __3)
+    __action8(
+        input,
+        __0,
+        __temp0,
+        __2,
+        __3,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action43<'input>(
+fn __action43<
+    'input,
+>(
     input: &'input str,
     __0: (usize, String, usize),
     __1: (usize, Option<Term>, usize),
-) -> core::option::Option<(String, Option<Term>)> {
+) -> core::option::Option<(String, Option<Term>)>
+{
     let __start0 = __0.0.clone();
     let __end0 = __1.2.clone();
-    let __temp0 = __action26(input, __0, __1);
+    let __temp0 = __action26(
+        input,
+        __0,
+        __1,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action24(input, __temp0)
+    __action24(
+        input,
+        __temp0,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action44<'input>(
+fn __action44<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, String, usize),
     __2: (usize, Option<Term>, usize),
     __3: (usize, &'input str, usize),
-) -> Vec<(String, Option<Term>)> {
+) -> Vec<(String, Option<Term>)>
+{
     let __start0 = __1.0.clone();
     let __end0 = __2.2.clone();
-    let __temp0 = __action43(input, __1, __2);
+    let __temp0 = __action43(
+        input,
+        __1,
+        __2,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action41(input, __0, __temp0, __3)
+    __action41(
+        input,
+        __0,
+        __temp0,
+        __3,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action45<'input>(
+fn __action45<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, &'input str, usize),
-) -> Vec<(String, Option<Term>)> {
+) -> Vec<(String, Option<Term>)>
+{
     let __start0 = __0.2.clone();
     let __end0 = __1.0.clone();
-    let __temp0 = __action25(input, &__start0, &__end0);
+    let __temp0 = __action25(
+        input,
+        &__start0,
+        &__end0,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action41(input, __0, __temp0, __1)
+    __action41(
+        input,
+        __0,
+        __temp0,
+        __1,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action46<'input>(
+fn __action46<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, alloc::vec::Vec<(String, Option<Term>)>, usize),
     __2: (usize, String, usize),
     __3: (usize, Option<Term>, usize),
     __4: (usize, &'input str, usize),
-) -> Vec<(String, Option<Term>)> {
+) -> Vec<(String, Option<Term>)>
+{
     let __start0 = __2.0.clone();
     let __end0 = __3.2.clone();
-    let __temp0 = __action43(input, __2, __3);
+    let __temp0 = __action43(
+        input,
+        __2,
+        __3,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action42(input, __0, __1, __temp0, __4)
+    __action42(
+        input,
+        __0,
+        __1,
+        __temp0,
+        __4,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action47<'input>(
+fn __action47<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, alloc::vec::Vec<(String, Option<Term>)>, usize),
     __2: (usize, &'input str, usize),
-) -> Vec<(String, Option<Term>)> {
+) -> Vec<(String, Option<Term>)>
+{
     let __start0 = __1.2.clone();
     let __end0 = __2.0.clone();
-    let __temp0 = __action25(input, &__start0, &__end0);
+    let __temp0 = __action25(
+        input,
+        &__start0,
+        &__end0,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action42(input, __0, __1, __temp0, __2)
+    __action42(
+        input,
+        __0,
+        __1,
+        __temp0,
+        __2,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action48<'input>(
+fn __action48<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, &'input str, usize),
-) -> Term {
+) -> Term
+{
     let __start0 = __0.2.clone();
     let __end0 = __1.0.clone();
-    let __temp0 = __action30(input, &__start0, &__end0);
+    let __temp0 = __action30(
+        input,
+        &__start0,
+        &__end0,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action17(input, __0, __temp0, __1)
+    __action17(
+        input,
+        __0,
+        __temp0,
+        __1,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action49<'input>(
+fn __action49<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, alloc::vec::Vec<(String, Term)>, usize),
     __2: (usize, &'input str, usize),
-) -> Term {
+) -> Term
+{
     let __start0 = __1.0.clone();
     let __end0 = __1.2.clone();
-    let __temp0 = __action31(input, __1);
+    let __temp0 = __action31(
+        input,
+        __1,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action17(input, __0, __temp0, __2)
+    __action17(
+        input,
+        __0,
+        __temp0,
+        __2,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action50<'input>(
+fn __action50<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, &'input str, usize),
     __2: (usize, Term, usize),
-) -> Term {
+) -> Term
+{
     let __start0 = __0.2.clone();
     let __end0 = __1.0.clone();
-    let __temp0 = __action30(input, &__start0, &__end0);
+    let __temp0 = __action30(
+        input,
+        &__start0,
+        &__end0,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action4(input, __0, __temp0, __1, __2)
+    __action4(
+        input,
+        __0,
+        __temp0,
+        __1,
+        __2,
+    )
 }
 
 #[allow(unused_variables)]
-fn __action51<'input>(
+fn __action51<
+    'input,
+>(
     input: &'input str,
     __0: (usize, &'input str, usize),
     __1: (usize, alloc::vec::Vec<(String, Term)>, usize),
     __2: (usize, &'input str, usize),
     __3: (usize, Term, usize),
-) -> Term {
+) -> Term
+{
     let __start0 = __1.0.clone();
     let __end0 = __1.2.clone();
-    let __temp0 = __action31(input, __1);
+    let __temp0 = __action31(
+        input,
+        __1,
+    );
     let __temp0 = (__start0, __temp0, __end0);
-    __action4(input, __0, __temp0, __2, __3)
+    __action4(
+        input,
+        __0,
+        __temp0,
+        __2,
+        __3,
+    )
 }
 
-pub trait __ToTriple<'input> {
-    fn to_triple(
-        value: Self,
-    ) -> Result<
-        (usize, Token<'input>, usize),
-        __lalrpop_util::ParseError<usize, Token<'input>, &'static str>,
-    >;
+pub trait __ToTriple<'input, > {
+    fn to_triple(value: Self) -> Result<(usize,Token<'input>,usize), __lalrpop_util::ParseError<usize, Token<'input>, &'static str>>;
 }
 
-impl<'input> __ToTriple<'input> for (usize, Token<'input>, usize) {
-    fn to_triple(
-        value: Self,
-    ) -> Result<
-        (usize, Token<'input>, usize),
-        __lalrpop_util::ParseError<usize, Token<'input>, &'static str>,
-    > {
+impl<'input, > __ToTriple<'input, > for (usize, Token<'input>, usize) {
+    fn to_triple(value: Self) -> Result<(usize,Token<'input>,usize), __lalrpop_util::ParseError<usize, Token<'input>, &'static str>> {
         Ok(value)
     }
 }
-impl<'input> __ToTriple<'input> for Result<(usize, Token<'input>, usize), &'static str> {
-    fn to_triple(
-        value: Self,
-    ) -> Result<
-        (usize, Token<'input>, usize),
-        __lalrpop_util::ParseError<usize, Token<'input>, &'static str>,
-    > {
+impl<'input, > __ToTriple<'input, > for Result<(usize, Token<'input>, usize), &'static str> {
+    fn to_triple(value: Self) -> Result<(usize,Token<'input>,usize), __lalrpop_util::ParseError<usize, Token<'input>, &'static str>> {
         match value {
             Ok(v) => Ok(v),
             Err(error) => Err(__lalrpop_util::ParseError::User { error }),

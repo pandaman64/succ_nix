@@ -29,13 +29,13 @@ DefaultArg: Option<Term> = {
 }
 
 AppTerm: Term = {
-    <PathTerm>,
-    <t1:AppTerm> <t2:PathTerm> => Term::App(t1.into(), t2.into()),
+    <SelectTerm>,
+    <t1:AppTerm> <t2:SelectTerm> => Term::App(t1.into(), t2.into()),
 }
 
-PathTerm: Term = {
+SelectTerm: Term = {
     <AtomicTerm>,
-    <t: PathTerm> "." <f: Id> => Term::Path(t.into(), f),
+    <t: SelectTerm> "." <f: Id> => Term::Select(t.into(), f),
 }
 
 AtomicTerm: Term = {
