@@ -11,6 +11,8 @@ pub enum Type {
     Union {
         boolean: BoolDomain,
         integer: IntDomain,
+        list: ListDomain,
+        path: PathDomain,
         string: StringDomain,
         vars: VarDomain,
         fun: FunDomain,
@@ -29,6 +31,8 @@ impl fmt::Display for Type {
             Union {
                 boolean,
                 integer,
+                list,
+                path,
                 string,
                 vars,
                 fun,
@@ -44,6 +48,20 @@ impl fmt::Display for Type {
                         f.write_str(" ∪ ")?;
                     }
                     write!(f, "{}", integer)?;
+                    first = false;
+                }
+                if !list.is_bottom() {
+                    if !first {
+                        f.write_str(" ∪ ")?;
+                    }
+                    write!(f, "{}", list)?;
+                    first = false;
+                }
+                if !path.is_bottom() {
+                    if !first {
+                        f.write_str(" ∪ ")?;
+                    }
+                    write!(f, "{}", path)?;
                     first = false;
                 }
                 if !string.is_bottom() {
@@ -78,6 +96,8 @@ impl Type {
                 ff: false,
             },
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
@@ -92,6 +112,8 @@ impl Type {
                 ff: true,
             },
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
@@ -103,6 +125,8 @@ impl Type {
         Type::Union {
             boolean: BoolDomain { tt: true, ff: true },
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
@@ -114,6 +138,34 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             integer: IntDomain { is_all: true },
+            list: Default::default(),
+            path: Default::default(),
+            string: Default::default(),
+            vars: Default::default(),
+            fun: Default::default(),
+            attrs: Default::default(),
+        }
+    }
+
+    pub fn list() -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            integer: Default::default(),
+            list: ListDomain { is_all: true },
+            path: Default::default(),
+            string: Default::default(),
+            vars: Default::default(),
+            fun: Default::default(),
+            attrs: Default::default(),
+        }
+    }
+
+    pub fn path() -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            integer: Default::default(),
+            list: Default::default(),
+            path: PathDomain { is_all: true },
             string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
@@ -125,6 +177,8 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: StringDomain { is_all: true },
             vars: Default::default(),
             fun: Default::default(),
@@ -136,6 +190,8 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: Default::default(),
             vars: VarDomain {
                 vars: {
@@ -153,6 +209,8 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
             fun: FunDomain::new(arg, ret),
@@ -164,6 +222,8 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
@@ -175,6 +235,8 @@ impl Type {
         Type::Union {
             boolean: Default::default(),
             integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
@@ -192,11 +254,15 @@ impl Type {
             Type::Union {
                 boolean,
                 integer,
+                list,
+                path,
                 string,
                 vars,
                 fun,
                 attrs,
             } if integer.is_bottom()
+                && list.is_bottom()
+                && path.is_bottom()
                 && string.is_bottom()
                 && vars.is_bottom()
                 && fun.is_bottom()
@@ -208,16 +274,95 @@ impl Type {
         }
     }
 
-    pub fn as_vars(&self) -> Option<&VarDomain> {
+    pub fn as_integer(&self) -> Option<&IntDomain> {
         match self {
             Type::Union {
                 boolean,
                 integer,
+                list,
+                path,
                 string,
                 vars,
                 fun,
                 attrs,
             } if boolean.is_bottom()
+                && list.is_bottom()
+                && path.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && fun.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                Some(integer)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn as_list(&self) -> Option<&ListDomain> {
+        match self {
+            Type::Union {
+                boolean,
+                integer,
+                list,
+                path,
+                string,
+                vars,
+                fun,
+                attrs,
+            } if boolean.is_bottom()
+                && integer.is_bottom()
+                && path.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && fun.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                Some(list)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn as_path(&self) -> Option<&PathDomain> {
+        match self {
+            Type::Union {
+                boolean,
+                integer,
+                list,
+                path,
+                string,
+                vars,
+                fun,
+                attrs,
+            } if boolean.is_bottom()
+                && integer.is_bottom()
+                && list.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && fun.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                Some(path)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn as_vars(&self) -> Option<&VarDomain> {
+        match self {
+            Type::Union {
+                boolean,
+                integer,
+                list,
+                path,
+                string,
+                vars,
+                fun,
+                attrs,
+            } if boolean.is_bottom()
+                && list.is_bottom()
+                && path.is_bottom()
                 && integer.is_bottom()
                 && string.is_bottom()
                 && fun.is_bottom()
@@ -234,11 +379,15 @@ impl Type {
             Type::Union {
                 boolean,
                 integer,
+                list,
+                path,
                 string,
                 vars,
                 fun,
                 attrs,
             } if boolean.is_bottom()
+                && list.is_bottom()
+                && path.is_bottom()
                 && integer.is_bottom()
                 && string.is_bottom()
                 && vars.is_bottom()
@@ -255,11 +404,15 @@ impl Type {
             Type::Union {
                 boolean,
                 integer,
+                list,
+                path,
                 string,
                 vars,
                 fun,
                 attrs,
             } if boolean.is_bottom()
+                && list.is_bottom()
+                && path.is_bottom()
                 && integer.is_bottom()
                 && string.is_bottom()
                 && vars.is_bottom()
@@ -272,17 +425,29 @@ impl Type {
     }
 
     pub fn is_bottom(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Type::Union {
                 boolean,
                 integer,
+                list,
+                path,
                 string,
                 vars,
                 fun,
-                attrs
-            } if boolean.is_bottom() && integer.is_bottom() && string.is_bottom() && vars.is_bottom() && fun.is_bottom() && attrs.is_bottom()
-        )
+                attrs,
+            } if boolean.is_bottom()
+                && list.is_bottom()
+                && path.is_bottom()
+                && integer.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && fun.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                true
+            }
+            _ => false,
+        }
     }
 
     fn is_subtype(&self, other: &Type) -> bool {
@@ -302,6 +467,8 @@ impl Type {
                 Union {
                     boolean: b1,
                     integer: i1,
+                    list: l1,
+                    path: p1,
                     string: s1,
                     vars: v1,
                     fun: f1,
@@ -310,6 +477,8 @@ impl Type {
                 Union {
                     boolean: b2,
                     integer: i2,
+                    list: l2,
+                    path: p2,
                     string: s2,
                     vars: v2,
                     fun: f2,
@@ -318,6 +487,8 @@ impl Type {
             ) => {
                 let boolean = b1.sup(b2);
                 let integer = i1.sup(i2);
+                let list = l1.sup(l2);
+                let path = p1.sup(p2);
                 let string = s1.sup(s2);
                 let vars = v1.sup(v2);
                 let fun = f1.sup(f2);
@@ -326,6 +497,8 @@ impl Type {
                 Union {
                     boolean,
                     integer,
+                    list,
+                    path,
                     string,
                     vars,
                     fun,
@@ -347,6 +520,8 @@ impl Type {
                 Union {
                     boolean: b1,
                     integer: i1,
+                    list: l1,
+                    path: p1,
                     string: s1,
                     vars: v1,
                     fun: f1,
@@ -355,6 +530,8 @@ impl Type {
                 Union {
                     boolean: b2,
                     integer: i2,
+                    list: l2,
+                    path: p2,
                     string: s2,
                     vars: v2,
                     fun: f2,
@@ -366,6 +543,8 @@ impl Type {
 
                 let boolean = b1.inf(b2);
                 let integer = i1.inf(i2);
+                let list = l1.inf(l2);
+                let path = p1.inf(p2);
                 let string = s1.inf(s2);
                 let vars = Default::default();
                 let fun = f1.inf(f2);
@@ -374,6 +553,8 @@ impl Type {
                 Union {
                     boolean,
                     integer,
+                    list,
+                    path,
                     string,
                     vars,
                     fun,
@@ -661,6 +842,8 @@ impl Solution {
             Union {
                 boolean,
                 integer,
+                list,
+                path,
                 string,
                 vars,
                 fun,
@@ -670,6 +853,8 @@ impl Solution {
                 let mut ty = Type::Union {
                     boolean: *boolean,
                     integer: *integer,
+                    list: *list,
+                    path: *path,
                     string: *string,
                     vars: Default::default(),
                     fun: Default::default(),
