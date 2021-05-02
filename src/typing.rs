@@ -10,6 +10,8 @@ pub enum Type {
     Any,
     Union {
         boolean: BoolDomain,
+        integer: IntDomain,
+        string: StringDomain,
         vars: VarDomain,
         fun: FunDomain,
         attrs: AttrSetDomain,
@@ -26,24 +28,41 @@ impl fmt::Display for Type {
             Union { .. } if self.is_bottom() => f.write_str("∅"),
             Union {
                 boolean,
+                integer,
+                string,
                 vars,
                 fun,
                 attrs,
             } => {
+                let mut first = true;
                 if !boolean.is_bottom() {
                     write!(f, "{}", boolean)?;
+                    first = false;
+                }
+                if !integer.is_bottom() {
+                    if !first {
+                        f.write_str(" ∪ ")?;
+                    }
+                    write!(f, "{}", integer)?;
+                    first = false;
+                }
+                if !string.is_bottom() {
+                    if !first {
+                        f.write_str(" ∪ ")?;
+                    }
+                    write!(f, "{}", string)?;
+                    first = false;
                 }
                 if !vars.is_bottom() {
-                    vars.fmt(f, boolean.is_bottom())?;
+                    vars.fmt(f, first)?;
+                    first = false;
                 }
                 if !fun.is_bottom() {
-                    fun.fmt(f, boolean.is_bottom() && vars.is_bottom())?;
+                    fun.fmt(f, first)?;
+                    first = false;
                 }
                 if !attrs.is_bottom() {
-                    attrs.fmt(
-                        f,
-                        boolean.is_bottom() && vars.is_bottom() && fun.is_bottom(),
-                    )?;
+                    attrs.fmt(f, first)?;
                 }
                 Ok(())
             }
@@ -58,6 +77,8 @@ impl Type {
                 tt: true,
                 ff: false,
             },
+            integer: Default::default(),
+            string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
             attrs: Default::default(),
@@ -70,6 +91,8 @@ impl Type {
                 tt: false,
                 ff: true,
             },
+            integer: Default::default(),
+            string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
             attrs: Default::default(),
@@ -79,6 +102,30 @@ impl Type {
     pub fn boolean() -> Self {
         Type::Union {
             boolean: BoolDomain { tt: true, ff: true },
+            integer: Default::default(),
+            string: Default::default(),
+            vars: Default::default(),
+            fun: Default::default(),
+            attrs: Default::default(),
+        }
+    }
+
+    pub fn integer() -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            integer: IntDomain { is_all: true },
+            string: Default::default(),
+            vars: Default::default(),
+            fun: Default::default(),
+            attrs: Default::default(),
+        }
+    }
+
+    pub fn string() -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            integer: Default::default(),
+            string: StringDomain { is_all: true },
             vars: Default::default(),
             fun: Default::default(),
             attrs: Default::default(),
@@ -88,6 +135,8 @@ impl Type {
     fn var(v: String) -> Self {
         Type::Union {
             boolean: Default::default(),
+            integer: Default::default(),
+            string: Default::default(),
             vars: VarDomain {
                 vars: {
                     let mut vars = BTreeSet::new();
@@ -103,6 +152,8 @@ impl Type {
     pub fn fun(arg: Type, ret: Type) -> Self {
         Type::Union {
             boolean: Default::default(),
+            integer: Default::default(),
+            string: Default::default(),
             vars: Default::default(),
             fun: FunDomain::new(arg, ret),
             attrs: Default::default(),
@@ -112,6 +163,8 @@ impl Type {
     pub fn attr_set(attrs: AttrSetType) -> Self {
         Type::Union {
             boolean: Default::default(),
+            integer: Default::default(),
+            string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
             attrs: AttrSetDomain::new(attrs),
@@ -121,6 +174,8 @@ impl Type {
     pub fn none() -> Self {
         Type::Union {
             boolean: Default::default(),
+            integer: Default::default(),
+            string: Default::default(),
             vars: Default::default(),
             fun: Default::default(),
             attrs: Default::default(),
@@ -136,10 +191,19 @@ impl Type {
         match self {
             Type::Union {
                 boolean,
+                integer,
+                string,
                 vars,
                 fun,
                 attrs,
-            } if vars.is_bottom() && fun.is_bottom() && attrs.is_bottom() => Some(boolean),
+            } if integer.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && fun.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                Some(boolean)
+            }
             _ => None,
         }
     }
@@ -148,10 +212,19 @@ impl Type {
         match self {
             Type::Union {
                 boolean,
+                integer,
+                string,
                 vars,
                 fun,
                 attrs,
-            } if boolean.is_bottom() && fun.is_bottom() && attrs.is_bottom() => Some(vars),
+            } if boolean.is_bottom()
+                && integer.is_bottom()
+                && string.is_bottom()
+                && fun.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                Some(vars)
+            }
             _ => None,
         }
     }
@@ -160,10 +233,19 @@ impl Type {
         match self {
             Type::Union {
                 boolean,
+                integer,
+                string,
                 vars,
                 fun,
                 attrs,
-            } if boolean.is_bottom() && vars.is_bottom() && attrs.is_bottom() => fun.as_fun(),
+            } if boolean.is_bottom()
+                && integer.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                fun.as_fun()
+            }
             _ => None,
         }
     }
@@ -172,10 +254,19 @@ impl Type {
         match self {
             Type::Union {
                 boolean,
+                integer,
+                string,
                 vars,
                 fun,
                 attrs,
-            } if boolean.is_bottom() && vars.is_bottom() && fun.is_bottom() => attrs.as_attrs(),
+            } if boolean.is_bottom()
+                && integer.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && fun.is_bottom() =>
+            {
+                attrs.as_attrs()
+            }
             _ => None,
         }
     }
@@ -185,10 +276,12 @@ impl Type {
             self,
             Type::Union {
                 boolean,
+                integer,
+                string,
                 vars,
                 fun,
                 attrs
-            } if boolean.is_bottom() && vars.is_bottom() && fun.is_bottom() && attrs.is_bottom()
+            } if boolean.is_bottom() && integer.is_bottom() && string.is_bottom() && vars.is_bottom() && fun.is_bottom() && attrs.is_bottom()
         )
     }
 
@@ -207,24 +300,32 @@ impl Type {
             (
                 Union {
                     boolean: b1,
+                    integer: i1,
+                    string: s1,
                     vars: v1,
                     fun: f1,
                     attrs: a1,
                 },
                 Union {
                     boolean: b2,
+                    integer: i2,
+                    string: s2,
                     vars: v2,
                     fun: f2,
                     attrs: a2,
                 },
             ) => {
                 let boolean = b1.sup(b2);
+                let integer = i1.sup(i2);
+                let string = s1.sup(s2);
                 let vars = v1.sup(v2);
                 let fun = f1.sup(f2);
                 let attrs = a1.sup(a2);
 
                 Union {
                     boolean,
+                    integer,
+                    string,
                     vars,
                     fun,
                     attrs,
@@ -244,12 +345,16 @@ impl Type {
             (
                 Union {
                     boolean: b1,
+                    integer: i1,
+                    string: s1,
                     vars: v1,
                     fun: f1,
                     attrs: a1,
                 },
                 Union {
                     boolean: b2,
+                    integer: i2,
+                    string: s2,
                     vars: v2,
                     fun: f2,
                     attrs: a2,
@@ -259,12 +364,16 @@ impl Type {
                 assert!(v2.is_bottom());
 
                 let boolean = b1.inf(b2);
+                let integer = i1.inf(i2);
+                let string = s1.inf(s2);
                 let vars = Default::default();
                 let fun = f1.inf(f2);
                 let attrs = a1.inf(a2);
 
                 Union {
                     boolean,
+                    integer,
+                    string,
                     vars,
                     fun,
                     attrs,
@@ -539,6 +648,8 @@ impl Solution {
         match ty {
             Union {
                 boolean,
+                integer,
+                string,
                 vars,
                 fun,
                 attrs,
@@ -546,6 +657,8 @@ impl Solution {
                 // (A ∪ B) ∪ (C ∪ D) = A ∪ B ∪ C ∪ D
                 let mut ty = Type::Union {
                     boolean: *boolean,
+                    integer: *integer,
+                    string: *string,
                     vars: Default::default(),
                     fun: Default::default(),
                     attrs: Default::default(),
@@ -580,7 +693,7 @@ impl Solution {
         eprintln!("update check: {} ⊆ {}", t1, inf);
 
         if let Some(vars) = t1.as_vars() {
-            // A ∪ B ⊂ X --> A ⊂ X ∧ B ⊂ X
+            // A ∪ B ⊂ X --> A ⊂ X ∧ B ⊂ X
             for v in vars.vars.iter() {
                 eprintln!("update {} --> {}", v, inf);
                 self.map.insert(v.clone(), inf.clone());
