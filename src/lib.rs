@@ -175,6 +175,7 @@ impl FunDomain {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AttrSetType {
     attrs: BTreeMap<String, Type>,
+    rest: Box<Type>,
 }
 
 impl fmt::Display for AttrSetType {
@@ -183,41 +184,54 @@ impl fmt::Display for AttrSetType {
         for (name, ty) in self.attrs.iter() {
             write!(f, "{} = {}; ", name, ty)?;
         }
+        write!(f, "... = {}; ", self.rest)?;
         f.write_str("}")
     }
 }
 
 impl AttrSetType {
     fn sup(&self, other: &Self) -> Self {
-        let attrs = self
-            .attrs
+        let names: BTreeSet<_> = self.attrs.keys().chain(other.attrs.keys()).collect();
+
+        let attrs = names
             .iter()
-            .map(|(v, t1)| {
-                let t = match other.attrs.get(v) {
-                    Some(t2) => t1.sup(t2),
-                    None => t1.clone(),
+            .map(|&name| {
+                let t = match (self.attrs.get(name), other.attrs.get(name)) {
+                    (Some(t1), Some(t2)) => t1.sup(t2),
+                    (Some(t1), None) => t1.sup(&other.rest),
+                    (None, Some(t2)) => t2.sup(&self.rest),
+                    (None, None) => unreachable!(),
                 };
-                (v.clone(), t)
+                (name.clone(), t)
             })
             .collect();
 
-        Self { attrs }
+        Self {
+            attrs,
+            rest: self.rest.sup(&other.rest).into(),
+        }
     }
 
     fn inf(&self, other: &Self) -> Self {
-        let attrs = self
-            .attrs
+        let names: BTreeSet<_> = self.attrs.keys().chain(other.attrs.keys()).collect();
+
+        let attrs = names
             .iter()
-            .map(|(v, t1)| {
-                let t = match other.attrs.get(v) {
-                    Some(t2) => t1.inf(t2),
-                    None => t1.clone(),
+            .map(|&name| {
+                let t = match (self.attrs.get(name), other.attrs.get(name)) {
+                    (Some(t1), Some(t2)) => t1.inf(t2),
+                    (Some(t1), None) => t1.inf(&other.rest),
+                    (None, Some(t2)) => t2.inf(&self.rest),
+                    (None, None) => unreachable!(),
                 };
-                (v.clone(), t)
+                (name.clone(), t)
             })
             .collect();
 
-        Self { attrs }
+        Self {
+            attrs,
+            rest: self.rest.inf(&other.rest).into(),
+        }
     }
 }
 
@@ -702,28 +716,45 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                 attrs.iter().map(|(_, t)| success_type(env, t)).unzip();
             let result_ty = Type::attr_set(AttrSetType {
                 attrs: attrs.keys().cloned().zip(tys.iter().cloned()).collect(),
+                rest: Type::none().into(),
             });
 
             (result_ty, Constraint::conj(cs))
         }
-        Path(t, f) => {
+        Path(t, x) => {
             let (t_ty, t_c) = success_type(env, t);
-            let t_tf = fresh_tvar();
+            let tx_ty = fresh_tvar();
             let constraints = Constraint::conj(vec![
+                // When `t.x` evaluates to a value, `τ_t` must include the set
+                // `{ x = τ_x, ... = none }`.
                 Constraint::subset(
                     Type::attr_set(AttrSetType {
                         attrs: {
                             let mut attrs = BTreeMap::new();
-                            attrs.insert(f.clone(), t_tf.clone());
+                            attrs.insert(x.clone(), tx_ty.clone());
                             attrs
                         },
+                        rest: Type::none().into(),
                     }),
+                    t_ty.clone(),
+                ),
+                // In order to `t.x` evaluates to a value, `t` must be in the set of
+                // all attribute set with `x` field, i.e. `{ x = τ_x, ... = any }`.
+                Constraint::subset(
                     t_ty,
+                    Type::attr_set(AttrSetType {
+                        attrs: {
+                            let mut attrs = BTreeMap::new();
+                            attrs.insert(x.clone(), tx_ty.clone());
+                            attrs
+                        },
+                        rest: Type::any().into(),
+                    }),
                 ),
                 t_c,
             ]);
 
-            (t_tf, constraints)
+            (tx_ty, constraints)
         }
         Or(t1, t2) => {
             // precisely, `or` operator introduces an implication, like
@@ -774,8 +805,9 @@ impl Solution {
                 (v.clone(), t)
             })
             .collect();
+        let rest = self.map_ty(&ty.rest).into();
 
-        AttrSetType { attrs }
+        AttrSetType { attrs, rest }
     }
 
     fn map_ty(&self, ty: &Type) -> Type {
@@ -1127,10 +1159,15 @@ mod test {
                         attrs.insert("y".into(), Type::any());
                         attrs
                     },
+                    rest: Type::any().into(),
                 }),
                 Type::any(),
             ),
         );
+
+        // TODO: in practice, Nix functions check the argument does not have more
+        // attributes than neccessary unless specified via `{ <attrs>, ... }`.
+        // thefore, the following inference result is imprecise (rest must be none).
         success(
             "{ y }: y",
             env(),
@@ -1141,6 +1178,7 @@ mod test {
                         attrs.insert("y".into(), Type::any());
                         attrs
                     },
+                    rest: Type::any().into(),
                 }),
                 Type::any(),
             ),
