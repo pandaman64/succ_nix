@@ -11,7 +11,7 @@ pub use typing::{success_type, Environment, Solution, Type};
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::domain::AttrSetType;
+    use crate::{domain::AttrSetType, typing::TypeErrorSink};
     use std::collections::{BTreeMap, HashMap};
 
     fn env() -> (HashMap<String, hir::Id>, Environment) {
@@ -38,7 +38,7 @@ mod test {
     fn run(
         input: &str,
         (name_env, mut ty_env): (HashMap<String, hir::Id>, Environment),
-    ) -> (bool, Type) {
+    ) -> (Type, TypeErrorSink) {
         let ast = parse_term(input).unwrap();
         let terms = typed_arena::Arena::new();
         let alpha_env = name_env
@@ -61,26 +61,27 @@ mod test {
             eprintln!("{} --> {}", v, t);
         }
         let mut sol = Solution::default();
-        let result = sol.refine(&c);
-        eprintln!("sol[{}]:", result);
+        let mut sink = TypeErrorSink::default();
+        sol.refine(&c, &mut sink);
+        eprintln!("sol:");
         for (v, t) in sol.map.iter() {
             eprintln!("{} --> {}", v, t);
         }
 
-        (result, sol.map_ty(&t))
+        (sol.map_ty(&t), sink)
     }
 
     fn success(input: &str, env: (HashMap<String, hir::Id>, Environment), expected: Type) {
-        let (result, actual) = run(input, env);
+        let (actual, sink) = run(input, env);
 
-        assert!(result);
+        assert!(!sink.is_error());
         assert_eq!(actual, expected, "\n{} ≠ {}", actual, expected);
     }
 
     fn fail(input: &str, env: (HashMap<String, hir::Id>, Environment)) {
-        let (result, _actual) = run(input, env);
+        let (_acutual, sink) = run(input, env);
 
-        assert!(!result);
+        assert!(sink.is_error());
     }
 
     #[test]

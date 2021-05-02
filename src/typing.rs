@@ -601,6 +601,17 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct TypeErrorSink {
+    is_error: bool,
+}
+
+impl TypeErrorSink {
+    pub fn is_error(&self) -> bool {
+        self.is_error
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Solution {
     // tvar -> ty
@@ -722,49 +733,54 @@ impl Solution {
         }
     }
 
-    fn refine_subset(&mut self, t1: &Type, t2: &Type) -> bool {
+    fn refine_subset(&mut self, t1: &Type, t2: &Type, sink: &mut TypeErrorSink) {
         eprintln!("refine subset: {} ⊆ {}", t1, t2);
 
         let cur1 = self.map_ty(t1);
         let cur2 = self.map_ty(t2);
 
-        if cur1.is_subtype(&cur2) {
-            true
-        } else {
+        // if the current solution does not satisfy the constraints, we refine
+        // the assignments of variables.
+        if !cur1.is_subtype(&cur2) {
             let inf = cur1.inf(&cur2);
-            // type clash
+            // type clash, or the constraint cannot be met
             if inf.is_bottom() {
+                // TODO: more useful error reporting e.g. file names and lines
                 eprintln!("type clash between {} and {}", cur1, cur2);
-                false
-            } else {
-                self.update(t1, &inf);
-                true
+                sink.is_error = true;
             }
+            self.update(t1, &inf);
         }
     }
 
-    pub fn refine(&mut self, c: &Constraint) -> bool {
+    pub fn refine(&mut self, c: &Constraint, sink: &mut TypeErrorSink) {
         eprintln!("refine: {}", c);
         use Constraint::*;
 
         let old = self.clone();
-        let result = match c {
-            Equal(t1, t2) => self.refine_subset(t1, t2) && self.refine_subset(t2, t1),
-            Subset(t1, t2) => self.refine_subset(t1, t2),
-            Conj(cs) => cs.iter().all(|c| self.refine(c)),
+        match c {
+            Equal(t1, t2) => {
+                self.refine_subset(t1, t2, sink);
+                self.refine_subset(t2, t1, sink);
+            }
+            Subset(t1, t2) => self.refine_subset(t1, t2, sink),
+            Conj(cs) => cs.iter().for_each(|c| self.refine(c, sink)),
             Disj(cs) => {
                 // prevent interleaving mutable access to self
                 let sols: Vec<_> = cs
                     .iter()
                     .filter_map(|c| {
                         let mut sol = self.clone();
-                        if sol.refine(c) {
-                            Some(sol)
-                        } else {
+                        let mut sink = TypeErrorSink::default();
+                        sol.refine(c, &mut sink);
+                        if sink.is_error() {
                             None
+                        } else {
+                            Some(sol)
                         }
                     })
                     .collect();
+
                 let mut ok = false;
 
                 for sol in sols.iter() {
@@ -787,17 +803,14 @@ impl Solution {
                     }
                 }
 
-                ok
+                if !ok {
+                    sink.is_error = true;
+                }
             }
         };
-        if result {
-            if self != &old {
-                self.refine(c)
-            } else {
-                true
-            }
-        } else {
-            false
+
+        if self != &old {
+            self.refine(c, sink)
         }
     }
 }
