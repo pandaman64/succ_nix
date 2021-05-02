@@ -22,8 +22,12 @@ impl fmt::Display for AttrSetType {
 }
 
 impl AttrSetType {
+    pub fn union_names<'a>(&'a self, other: &'a Self) -> BTreeSet<&'a String> {
+        self.attrs.keys().chain(other.attrs.keys()).collect()
+    }
+
     fn sup(&self, other: &Self) -> Self {
-        let names: BTreeSet<_> = self.attrs.keys().chain(other.attrs.keys()).collect();
+        let names = self.union_names(other);
 
         let attrs = names
             .iter()
@@ -45,7 +49,7 @@ impl AttrSetType {
     }
 
     fn inf(&self, other: &Self) -> Self {
-        let names: BTreeSet<_> = self.attrs.keys().chain(other.attrs.keys()).collect();
+        let names = self.union_names(other);
 
         let attrs = names
             .iter()

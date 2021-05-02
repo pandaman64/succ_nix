@@ -249,4 +249,9 @@ mod test {
             ),
         )
     }
+
+    #[test]
+    fn test_fail_nonexistent_path() {
+        success("builtins.nonexistent", env(), Type::none());
+    }
 }

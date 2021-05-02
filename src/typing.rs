@@ -287,6 +287,7 @@ impl Type {
 
     fn is_subtype(&self, other: &Type) -> bool {
         // CR pandaman: 同じ型でも表現が違うケースいっぱいあるが
+        // e.g. { a = ∅, ... = ∅; } = { ... = ∅; }. (これ本当に同じ型？)
         eprintln!("subtype? {} ⊆ {}, {}", self, other, self.inf(other));
         &self.inf(other) == self
     }
@@ -711,10 +712,11 @@ impl Solution {
 
         if let Some(attrs) = t1.as_attrs() {
             if let Some(inf_attrs) = inf.as_attrs() {
+                // since we take infimum, the attribute sets on the right hand
+                // side contains all attribute names on the left hand side.
                 for (v, t1) in attrs.attrs.iter() {
-                    if let Some(inf) = inf_attrs.attrs.get(v) {
-                        self.update(t1, inf);
-                    }
+                    let inf = inf_attrs.attrs.get(v).unwrap();
+                    self.update(t1, inf);
                 }
             }
         }
