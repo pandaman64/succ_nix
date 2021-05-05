@@ -730,14 +730,29 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             (result_ty, Constraint::conj(constraints))
         }
         AttrSet(attrs) => {
-            let (tys, cs): (Vec<Type>, Vec<Constraint>) =
-                attrs.iter().map(|(_, t)| success_type(env, t)).unzip();
-            let result_ty = Type::attr_set(AttrSetType {
-                attrs: attrs.keys().cloned().zip(tys.iter().cloned()).collect(),
-                rest: Type::none().into(),
-            });
+            fn type_descriptor(
+                env: &mut Environment,
+                attrs: &hir::AttrSetDescriptor,
+            ) -> (Type, Constraint) {
+                use hir::AttrSetDescriptor::*;
 
-            (result_ty, Constraint::conj(cs))
+                match attrs {
+                    Leaf(t) => success_type(env, t),
+                    Internal(attrs) => {
+                        let (tys, cs): (Vec<Type>, Vec<Constraint>) = attrs
+                            .iter()
+                            .map(|(_, attrs)| type_descriptor(env, attrs))
+                            .unzip();
+                        let result_ty = Type::attr_set(AttrSetType {
+                            attrs: attrs.keys().cloned().zip(tys.iter().cloned()).collect(),
+                            rest: Type::none().into(),
+                        });
+                        (result_ty, Constraint::conj(cs))
+                    }
+                }
+            }
+
+            type_descriptor(env, attrs)
         }
         Select(t, x) => {
             let (t_ty, t_c) = success_type(env, t);
