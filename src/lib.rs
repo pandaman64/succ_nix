@@ -27,11 +27,23 @@ mod test {
             },
             rest: Type::none().into(),
         });
+        let true_id = hir::Id::new();
+        let false_id = hir::Id::new();
         (
-            vec![(String::from("builtins"), builtins_id)]
-                .into_iter()
-                .collect(),
-            vec![(builtins_id, builtins_ty)].into_iter().collect(),
+            vec![
+                (String::from("builtins"), builtins_id),
+                (String::from("true"), true_id),
+                (String::from("false"), false_id),
+            ]
+            .into_iter()
+            .collect(),
+            vec![
+                (builtins_id, builtins_ty),
+                (true_id, Type::tt()),
+                (false_id, Type::ff()),
+            ]
+            .into_iter()
+            .collect(),
         )
     }
 
@@ -39,7 +51,7 @@ mod test {
         input: &str,
         (name_env, mut ty_env): (HashMap<String, hir::Id>, Environment),
     ) -> (Type, TypeErrorSink) {
-        let ast = parse_term(input).unwrap();
+        let ast = rnix::parse(input).node();
         let terms = typed_arena::Arena::new();
         let alpha_env = name_env
             .into_iter()
@@ -48,7 +60,7 @@ mod test {
                 (v, &*t)
             })
             .collect();
-        let hir = hir::from_ast(&ast, &terms, &alpha_env);
+        let hir = hir::from_rnix(ast, &terms, &alpha_env);
         eprintln!("hir = {}", hir);
 
         let (t, c) = success_type(&mut ty_env, &hir);

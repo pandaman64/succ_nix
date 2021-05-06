@@ -295,6 +295,10 @@ pub fn from_rnix<'a>(
             let root = Root::cast(ast).unwrap();
             from_rnix(root.inner().unwrap(), terms, env)
         }
+        NODE_PAREN => {
+            let paren = Paren::cast(ast).unwrap();
+            from_rnix(paren.inner().unwrap(), terms, env)
+        }
         NODE_LITERAL => {
             // the child node must be one of float, integer, path, and uri
             let literal_token = ast.children().next().unwrap();
