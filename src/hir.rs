@@ -335,22 +335,76 @@ pub fn from_rnix<'a>(
             let attrs = AttrSet::cast(ast).unwrap();
 
             if attrs.recursive() {
-                todo!()
+                // given `rec { x = y; y = ...; }`, we desugar it to
+                // ```
+                // let
+                //   x = y;
+                //   y = ...;
+                // in
+                // {
+                //   x = x;
+                //   y = y;
+                // }
+                let mut env = env.clone();
+                let names: BTreeSet<_> = attrs
+                    .entries()
+                    .map(|kv| {
+                        let key = kv.key().unwrap();
+                        // CR pandaman: dynamic attributes are allowed in attrsets
+                        let first = Ident::cast(key.path().next().unwrap()).unwrap();
+
+                        String::from(first.as_str())
+                    })
+                    .collect();
+                let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, Id::new())).collect();
+
+                for (name, id) in ids.iter() {
+                    env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
+                }
+
+                let mut let_descriptor = KeyValueDescriptor::default();
+                for kv in attrs.entries() {
+                    let key = kv.key().unwrap();
+                    let value = kv.value().unwrap();
+
+                    let t = from_rnix(value, terms, &env);
+                    let_descriptor.push(
+                        key.path().map(|x| {
+                            // CR pandaman: consider dynamic attributes
+                            Ident::cast(x).unwrap().as_str().into()
+                        }),
+                        t,
+                    );
+                }
+
+                let mut attr_set_descriptor = KeyValueDescriptor::default();
+                for (name, id) in ids.iter() {
+                    attr_set_descriptor.push(
+                        std::iter::once(name.into()),
+                        terms.alloc(TermData::Var(*id)),
+                    );
+                }
+
+                terms.alloc(TermData::Let(
+                    ids,
+                    let_descriptor,
+                    terms.alloc(TermData::AttrSet(attr_set_descriptor)),
+                ))
+            } else {
+                let mut descriptor = KeyValueDescriptor::default();
+                for attr in attrs.entries() {
+                    let key = attr.key().unwrap();
+                    let value = attr.value().unwrap();
+
+                    let t = from_rnix(value, terms, env);
+                    descriptor.push(
+                        key.path().map(|x| Ident::cast(x).unwrap().as_str().into()),
+                        t,
+                    );
+                }
+
+                terms.alloc(TermData::AttrSet(descriptor))
             }
-
-            let mut descriptor = KeyValueDescriptor::default();
-            for attr in attrs.entries() {
-                let key = attr.key().unwrap();
-                let value = attr.value().unwrap();
-
-                let t = from_rnix(value, terms, env);
-                descriptor.push(
-                    key.path().map(|x| Ident::cast(x).unwrap().as_str().into()),
-                    t,
-                );
-            }
-
-            terms.alloc(TermData::AttrSet(descriptor))
         }
         NODE_SELECT => {
             let select = Select::cast(ast).unwrap();

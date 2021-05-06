@@ -49,6 +49,7 @@ mod test {
         (name_env, mut ty_env): (HashMap<String, hir::Id>, Environment),
     ) -> (Type, TypeErrorSink) {
         let ast = rnix::parse(input).node();
+        eprintln!("ast = {:#?}", ast);
         let terms = typed_arena::Arena::new();
         let alpha_env = name_env
             .into_iter()
@@ -263,5 +264,22 @@ mod test {
     #[test]
     fn test_fail_nonexistent_path() {
         success("builtins.nonexistent", env(), Type::none());
+    }
+
+    #[test]
+    fn test_attr_set_rec() {
+        success(
+            "rec { x = 100; y = x; }",
+            env(),
+            Type::attr_set(AttrSetType {
+                attrs: {
+                    let mut attrs = BTreeMap::new();
+                    attrs.insert("x".into(), Type::integer());
+                    attrs.insert("y".into(), Type::integer());
+                    attrs
+                },
+                rest: Type::none().into(),
+            }),
+        );
     }
 }
