@@ -190,13 +190,12 @@ pub fn from_rnix<'a>(
         }
         NODE_LITERAL => {
             // the child node must be one of float, integer, path, and uri
-            let literal_token = ast.children().next().unwrap();
-            match literal_token.kind() {
-                TOKEN_FLOAT => todo!(),
-                TOKEN_INTEGER => terms.alloc(TermData::Integer),
-                TOKEN_PATH => terms.alloc(TermData::Path),
-                TOKEN_URI => todo!(),
-                _ => unreachable!(),
+            let value = Value::cast(ast).unwrap();
+            match value.to_value().unwrap() {
+                rnix::value::Value::Float(_) => todo!(),
+                rnix::value::Value::Integer(_) => terms.alloc(TermData::Integer),
+                rnix::value::Value::String(_) => terms.alloc(TermData::String),
+                rnix::value::Value::Path(_, _) => terms.alloc(TermData::Path),
             }
         }
         NODE_IDENT => {
