@@ -2,10 +2,8 @@
 mod ast;
 mod domain;
 pub mod hir;
-mod parser;
 mod typing;
 
-pub use parser::parse_term;
 pub use typing::{success_type, Environment, Solution, Type};
 
 #[cfg(test)]
