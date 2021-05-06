@@ -90,6 +90,7 @@ pub enum TermData<'a> {
     Var(Id),
     Lam(Id, Term<'a>),
     App(Term<'a>, Term<'a>),
+    Assert(Term<'a>, Term<'a>),
     If(Term<'a>, Term<'a>, Term<'a>),
     Let(BTreeMap<String, Id>, KeyValueDescriptor<'a>, Term<'a>),
     AttrSet(KeyValueDescriptor<'a>),
@@ -131,6 +132,12 @@ impl TermData<'_> {
             App(t1, t2) => {
                 t1.fmt(f, level)?;
                 f.write_str(" ")?;
+                t2.fmt(f, level)
+            }
+            Assert(t1, t2) => {
+                f.write_str("assert ")?;
+                t1.fmt(f, level)?;
+                f.write_str("; ")?;
                 t2.fmt(f, level)
             }
             If(c, t, e) => {
@@ -190,7 +197,12 @@ pub fn from_rnix<'a>(
 
             terms.alloc(TermData::App(t1, t2))
         }
-        ParsedType::Assert(_) => todo!(),
+        ParsedType::Assert(assert) => {
+            let cond = from_rnix(assert.condition().unwrap(), terms, env);
+            let body = from_rnix(assert.body().unwrap(), terms, env);
+
+            terms.alloc(TermData::Assert(cond, body))
+        }
         ParsedType::Ident(ident) => env.get(ident.as_str()).unwrap(),
         ParsedType::IfElse(ifelse) => {
             let c = from_rnix(ifelse.condition().unwrap(), terms, env);

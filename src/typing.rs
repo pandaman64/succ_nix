@@ -703,6 +703,19 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (ret_ty, app_constraint)
         }
+        Assert(t1, t2) => {
+            let (cond_ty, cond_c) = success_type(env, t1);
+            let (body_ty, body_c) = success_type(env, t2);
+
+            let constraints = Constraint::conj(vec![
+                // CR pandaman: I'm not sure that the return type should be true or boolean
+                Constraint::subset(cond_ty, Type::tt()),
+                cond_c,
+                body_c,
+            ]);
+
+            (body_ty, constraints)
+        }
         If(c, t, e) => {
             let (c_ty, c_c) = success_type(env, c);
             let (t_ty, t_c) = success_type(env, t);

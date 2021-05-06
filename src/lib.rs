@@ -282,4 +282,15 @@ mod test {
             }),
         );
     }
+
+    #[test]
+    fn test_assert() {
+        success("assert true; 100", env(), Type::integer());
+        success("x: assert x; x", env(), Type::fun(Type::tt(), Type::tt()));
+        success(
+            "x: assert (builtins.not x); x",
+            env(),
+            Type::fun(Type::boolean(), Type::boolean()),
+        );
+    }
 }
