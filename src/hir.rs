@@ -29,20 +29,20 @@ impl Id {
 }
 
 #[derive(Debug, Clone)]
-pub enum AttrSetDescriptor<'a> {
+pub enum KeyValueDescriptor<'a> {
     Leaf(Term<'a>),
-    Internal(BTreeMap<String, AttrSetDescriptor<'a>>),
+    Internal(BTreeMap<String, KeyValueDescriptor<'a>>),
 }
 
-impl Default for AttrSetDescriptor<'_> {
+impl Default for KeyValueDescriptor<'_> {
     fn default() -> Self {
         Self::Internal(BTreeMap::new())
     }
 }
 
-impl<'a> AttrSetDescriptor<'a> {
+impl<'a> KeyValueDescriptor<'a> {
     fn push<I: Iterator<Item = String>>(&mut self, mut iter: I, t: Term<'a>) {
-        use AttrSetDescriptor::*;
+        use KeyValueDescriptor::*;
 
         match iter.next() {
             Some(x) => match self {
@@ -57,7 +57,7 @@ impl<'a> AttrSetDescriptor<'a> {
     }
 
     fn fmt(&self, f: &mut fmt::Formatter, level: usize) -> fmt::Result {
-        use AttrSetDescriptor::*;
+        use KeyValueDescriptor::*;
 
         match self {
             Leaf(t) => t.fmt(f, level),
@@ -90,8 +90,8 @@ pub enum TermData<'a> {
     Lam(Id, Term<'a>),
     App(Term<'a>, Term<'a>),
     If(Term<'a>, Term<'a>, Term<'a>),
-    Let(BTreeMap<String, Id>, AttrSetDescriptor<'a>, Term<'a>),
-    AttrSet(AttrSetDescriptor<'a>),
+    Let(BTreeMap<String, Id>, KeyValueDescriptor<'a>, Term<'a>),
+    AttrSet(KeyValueDescriptor<'a>),
     Select(Term<'a>, String),
     Or(Term<'a>, Term<'a>),
 }
@@ -143,7 +143,7 @@ impl TermData<'_> {
             Let(names, attrs, e) => {
                 f.write_str("let\n")?;
                 match attrs {
-                    AttrSetDescriptor::Internal(attrs) => {
+                    KeyValueDescriptor::Internal(attrs) => {
                         for name in names.keys() {
                             write!(f, "{} = ", name)?;
                             attrs.get(name).unwrap().fmt(f, level + 1)?;
@@ -252,7 +252,7 @@ pub fn from_rnix<'a>(
                         env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
                     }
 
-                    let mut descriptor = AttrSetDescriptor::default();
+                    let mut descriptor = KeyValueDescriptor::default();
                     for pat in pattern.entries() {
                         let name = String::from(pat.name().unwrap().as_str());
                         let select_term = terms.alloc(TermData::Select(args_term, name.clone()));
@@ -313,7 +313,7 @@ pub fn from_rnix<'a>(
                 env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
             }
 
-            let mut descriptor = AttrSetDescriptor::default();
+            let mut descriptor = KeyValueDescriptor::default();
             for kv in letin.entries() {
                 let key = kv.key().unwrap();
                 let value = kv.value().unwrap();
@@ -339,7 +339,7 @@ pub fn from_rnix<'a>(
                 todo!()
             }
 
-            let mut descriptor = AttrSetDescriptor::default();
+            let mut descriptor = KeyValueDescriptor::default();
             for attr in attrs.entries() {
                 let key = attr.key().unwrap();
                 let value = attr.value().unwrap();

@@ -1,6 +1,6 @@
 use crate::{
     domain::*,
-    hir::{self, AttrSetDescriptor},
+    hir::{self, KeyValueDescriptor},
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -641,8 +641,8 @@ fn fresh_tvar() -> Type {
     Type::var(format!("α{}", current))
 }
 
-fn type_descriptor(env: &mut Environment, attrs: &hir::AttrSetDescriptor) -> (Type, Constraint) {
-    use hir::AttrSetDescriptor::*;
+fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (Type, Constraint) {
+    use hir::KeyValueDescriptor::*;
 
     match attrs {
         Leaf(t) => success_type(env, t),
@@ -736,7 +736,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             }
 
             match descriptor {
-                AttrSetDescriptor::Internal(attrs) => {
+                KeyValueDescriptor::Internal(attrs) => {
                     let (tys, cs): (Vec<(&str, Type)>, Vec<Constraint>) = attrs
                         .iter()
                         .map(|(name, child)| {
