@@ -316,7 +316,10 @@ pub fn from_rnix<'a>(
 
             terms.alloc(TermData::Let(ids, descriptor, t))
         }
-        ParsedType::List(_) => todo!(),
+        ParsedType::List(_) => {
+            // CR pandaman: support polymorphic lists
+            terms.alloc(TermData::List)
+        }
         ParsedType::OrDefault(_) => todo!(),
         ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), terms, env),
         ParsedType::Root(root) => from_rnix(root.inner().unwrap(), terms, env),
