@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
 };
 
@@ -90,7 +90,7 @@ pub enum TermData<'a> {
     Lam(Id, Term<'a>),
     App(Term<'a>, Term<'a>),
     If(Term<'a>, Term<'a>, Term<'a>),
-    Let(Vec<(Id, Term<'a>)>, Term<'a>),
+    Let(BTreeMap<String, Id>, AttrSetDescriptor<'a>, Term<'a>),
     AttrSet(AttrSetDescriptor<'a>),
     Select(Term<'a>, String),
     Or(Term<'a>, Term<'a>),
@@ -140,13 +140,16 @@ impl TermData<'_> {
                 f.write_str(" else ")?;
                 e.fmt(f, level)
             }
-            Let(assignments, e) => {
+            Let(names, attrs, e) => {
                 f.write_str("let\n")?;
-                for (v, t) in assignments.iter() {
-                    indent(f, level)?;
-                    write!(f, "{} = ", v)?;
-                    t.fmt(f, level + 1)?;
-                    f.write_str(";\n")?;
+                match attrs {
+                    AttrSetDescriptor::Internal(attrs) => {
+                        for name in names.keys() {
+                            write!(f, "{} = ", name)?;
+                            attrs.get(name).unwrap().fmt(f, level + 1)?;
+                        }
+                    }
+                    _ => unreachable!(),
                 }
                 indent(f, level.saturating_sub(1))?;
                 f.write_str("in ")?;
@@ -231,40 +234,42 @@ pub fn from_rnix<'a>(
 
                     let args_id = Id::new();
                     let args_term = &*terms.alloc(TermData::Var(args_id));
+                    let vn_ids: BTreeMap<String, Id> = pattern
+                        .entries()
+                        .map(|pat| {
+                            let id = Id::new();
+                            let name = pat.name().unwrap().as_str().into();
+
+                            (name, id)
+                        })
+                        .collect();
 
                     let mut env = env.clone();
                     if let Some(at) = pattern.at() {
                         env.insert(at.as_str().into(), args_term);
                     }
-                    let assignments: Vec<_> = pattern
-                        .entries()
-                        .map(|pat| {
-                            let id = Id::new();
-                            let name = pat.name().unwrap();
+                    for (name, id) in vn_ids.iter() {
+                        env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
+                    }
 
-                            env.insert(name.as_str().into(), terms.alloc(TermData::Var(id)));
+                    let mut descriptor = AttrSetDescriptor::default();
+                    for pat in pattern.entries() {
+                        let name = String::from(pat.name().unwrap().as_str());
+                        let select_term = terms.alloc(TermData::Select(args_term, name.clone()));
 
-                            (id, String::from(name.as_str()), pat.default())
-                        })
-                        .collect();
-                    let assignments = assignments
-                        .into_iter()
-                        .map(|(id, name, def)| {
-                            let select_term = terms.alloc(TermData::Select(args_term, name));
-                            let t = match def {
-                                Some(t) => terms
-                                    .alloc(TermData::Or(select_term, from_rnix(t, terms, &env))),
-                                None => select_term,
-                            };
-
-                            (id, &*t)
-                        })
-                        .collect();
+                        let t = match pat.default() {
+                            Some(t) => {
+                                terms.alloc(TermData::Or(select_term, from_rnix(t, terms, &env)))
+                            }
+                            None => select_term,
+                        };
+                        descriptor.push(std::iter::once(name), t);
+                    }
                     let t = from_rnix(body, terms, &env);
 
                     terms.alloc(TermData::Lam(
                         args_id,
-                        terms.alloc(TermData::Let(assignments, t)),
+                        terms.alloc(TermData::Let(vn_ids, descriptor, t)),
                     ))
                 }
                 _ => unreachable!(),
@@ -288,39 +293,43 @@ pub fn from_rnix<'a>(
             terms.alloc(TermData::If(c, t, e))
         }
         NODE_LET_IN => {
-            fn assert_single<T, I: Iterator<Item = T>>(mut iter: I) -> T {
-                let ret = iter.next().unwrap();
-                assert!(iter.next().is_none());
-                ret
-            }
-
             let mut env = env.clone();
             let letin = LetIn::cast(ast).unwrap();
-            let assignments: Vec<_> = letin
+
+            let names: BTreeSet<_> = letin
                 .entries()
                 .map(|kv| {
-                    let id = Id::new();
-                    let v = Ident::cast(assert_single(kv.key().unwrap().path())).unwrap();
-                    env.insert(v.as_str().into(), terms.alloc(TermData::Var(id)));
+                    let key = kv.key().unwrap();
+                    // dynamic attributes not allowed in let, so first element in
+                    // the path must be an identifier
+                    let first = Ident::cast(key.path().next().unwrap()).unwrap();
 
-                    let t = kv.value().unwrap();
-
-                    (id, t)
+                    String::from(first.as_str())
                 })
                 .collect();
+            let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, Id::new())).collect();
 
-            let assignments = assignments
-                .into_iter()
-                .map(|(id, t)| {
-                    let t = from_rnix(t, terms, &env);
-                    (id, t)
-                })
-                .collect();
+            for (name, id) in ids.iter() {
+                env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
+            }
 
-            terms.alloc(TermData::Let(
-                assignments,
-                from_rnix(letin.body().unwrap(), terms, &env),
-            ))
+            let mut descriptor = AttrSetDescriptor::default();
+            for kv in letin.entries() {
+                let key = kv.key().unwrap();
+                let value = kv.value().unwrap();
+
+                let t = from_rnix(value, terms, &env);
+                descriptor.push(
+                    key.path().map(|x| {
+                        // CR pandaman: consider dynamic attributes in non-first elements
+                        Ident::cast(x).unwrap().as_str().into()
+                    }),
+                    t,
+                );
+            }
+            let t = from_rnix(letin.body().unwrap(), terms, &env);
+
+            terms.alloc(TermData::Let(ids, descriptor, t))
         }
         NODE_LEGACY_LET => todo!(),
         NODE_ATTR_SET => {

@@ -1,4 +1,7 @@
-use crate::{domain::*, hir};
+use crate::{
+    domain::*,
+    hir::{self, AttrSetDescriptor},
+};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
@@ -638,6 +641,25 @@ fn fresh_tvar() -> Type {
     Type::var(format!("α{}", current))
 }
 
+fn type_descriptor(env: &mut Environment, attrs: &hir::AttrSetDescriptor) -> (Type, Constraint) {
+    use hir::AttrSetDescriptor::*;
+
+    match attrs {
+        Leaf(t) => success_type(env, t),
+        Internal(attrs) => {
+            let (tys, cs): (Vec<Type>, Vec<Constraint>) = attrs
+                .iter()
+                .map(|(_, attrs)| type_descriptor(env, attrs))
+                .unzip();
+            let result_ty = Type::attr_set(AttrSetType {
+                attrs: attrs.keys().cloned().zip(tys.iter().cloned()).collect(),
+                rest: Type::none().into(),
+            });
+            (result_ty, Constraint::conj(cs))
+        }
+    }
+}
+
 pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constraint) {
     use hir::TermData::*;
 
@@ -707,53 +729,39 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (result_ty, result_c)
         }
-        Let(assignments, e) => {
-            let tvs: Vec<_> = assignments.iter().map(|_| fresh_tvar()).collect();
-            for ((id, _), t) in assignments.iter().zip(tvs.iter()) {
+        Let(names, descriptor, e) => {
+            let tvs: Vec<_> = names.iter().map(|_| fresh_tvar()).collect();
+            for ((_, id), t) in names.iter().zip(tvs.iter()) {
                 env.insert(*id, t.clone());
             }
 
-            let (tys, cs): (Vec<Type>, Vec<Constraint>) = assignments
-                .iter()
-                .map(|(_, t)| success_type(env, t))
-                .unzip();
-            let (result_ty, result_c) = success_type(env, e);
+            match descriptor {
+                AttrSetDescriptor::Internal(attrs) => {
+                    let (tys, cs): (Vec<(&str, Type)>, Vec<Constraint>) = attrs
+                        .iter()
+                        .map(|(name, child)| {
+                            let (ty, c) = type_descriptor(env, child);
+                            ((name.as_str(), ty), c)
+                        })
+                        .unzip();
+                    let (result_ty, result_c) = success_type(env, e);
 
-            let constraints: Vec<_> = tvs
-                .into_iter()
-                .zip(tys.into_iter())
-                .map(|(tv, ty)| Constraint::eq(tv, ty))
-                .chain(cs)
-                .chain(std::iter::once(result_c))
-                .collect();
+                    let constraints = tys
+                        .iter()
+                        .map(|(name, ty)| {
+                            let tv = env.get(names.get(*name).unwrap()).unwrap().clone();
+                            Constraint::eq(tv, ty.clone())
+                        })
+                        .chain(cs)
+                        .chain(std::iter::once(result_c))
+                        .collect();
 
-            (result_ty, Constraint::conj(constraints))
-        }
-        AttrSet(attrs) => {
-            fn type_descriptor(
-                env: &mut Environment,
-                attrs: &hir::AttrSetDescriptor,
-            ) -> (Type, Constraint) {
-                use hir::AttrSetDescriptor::*;
-
-                match attrs {
-                    Leaf(t) => success_type(env, t),
-                    Internal(attrs) => {
-                        let (tys, cs): (Vec<Type>, Vec<Constraint>) = attrs
-                            .iter()
-                            .map(|(_, attrs)| type_descriptor(env, attrs))
-                            .unzip();
-                        let result_ty = Type::attr_set(AttrSetType {
-                            attrs: attrs.keys().cloned().zip(tys.iter().cloned()).collect(),
-                            rest: Type::none().into(),
-                        });
-                        (result_ty, Constraint::conj(cs))
-                    }
+                    (result_ty, Constraint::conj(constraints))
                 }
+                _ => unreachable!(),
             }
-
-            type_descriptor(env, attrs)
         }
+        AttrSet(attrs) => type_descriptor(env, attrs),
         Select(t, x) => {
             let (t_ty, t_c) = success_type(env, t);
             let tx_ty = fresh_tvar();
