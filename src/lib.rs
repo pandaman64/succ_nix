@@ -1,5 +1,4 @@
 // 型は単相だと思って全ての名前に対して単相の型を与える感じ
-mod ast;
 mod domain;
 pub mod hir;
 mod typing;
