@@ -310,7 +310,76 @@ pub fn from_rnix<'a>(
             let ident = Ident::cast(ast).unwrap();
             env.get(ident.as_str()).unwrap()
         }
-        NODE_LAMBDA => todo!(),
+        NODE_LAMBDA => {
+            let lambda = Lambda::cast(ast).unwrap();
+            let arg = lambda.arg().unwrap();
+            let body = lambda.body().unwrap();
+
+            match arg.kind() {
+                NODE_IDENT => {
+                    let arg = Ident::cast(arg).unwrap();
+                    let arg_id = Id::new();
+
+                    let mut env = env.clone();
+                    env.insert(arg.as_str().into(), terms.alloc(TermData::Var(arg_id)));
+
+                    let t = from_rnix(body, terms, &env);
+                    terms.alloc(TermData::Lam(arg_id, t))
+                }
+                NODE_PATTERN => {
+                    // Given `args @ { v1 ? t1, ... }: t`, we desugar it to
+                    // ```
+                    // args:
+                    // let
+                    //   vn = args.vn or tn;
+                    //   ...
+                    // in t
+                    // ```
+                    // Nix allows referring names in the same argument attribute set. e.g. `{ a, b ? a } ...`.
+                    // And the desugaring reproduces this behavior.
+                    let pattern = Pattern::cast(arg).unwrap();
+
+                    let args_id = Id::new();
+                    let args_term = &*terms.alloc(TermData::Var(args_id));
+
+                    let mut env = env.clone();
+                    if let Some(at) = pattern.at() {
+                        env.insert(at.as_str().into(), args_term);
+                    }
+                    let assignments: Vec<_> = pattern
+                        .entries()
+                        .map(|pat| {
+                            let id = Id::new();
+                            let name = pat.name().unwrap();
+
+                            env.insert(name.as_str().into(), terms.alloc(TermData::Var(id)));
+
+                            (id, String::from(name.as_str()), pat.default())
+                        })
+                        .collect();
+                    let assignments = assignments
+                        .into_iter()
+                        .map(|(id, name, def)| {
+                            let select_term = terms.alloc(TermData::Select(args_term, name));
+                            let t = match def {
+                                Some(t) => terms
+                                    .alloc(TermData::Or(select_term, from_rnix(t, terms, &env))),
+                                None => select_term,
+                            };
+
+                            (id, &*t)
+                        })
+                        .collect();
+                    let t = from_rnix(body, terms, &env);
+
+                    terms.alloc(TermData::Lam(
+                        args_id,
+                        terms.alloc(TermData::Let(assignments, t)),
+                    ))
+                }
+                _ => unreachable!(),
+            }
+        }
         NODE_APPLY => {
             let apply = Apply::cast(ast).unwrap();
 
