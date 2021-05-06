@@ -320,7 +320,12 @@ pub fn from_rnix<'a>(
             // CR pandaman: support polymorphic lists
             terms.alloc(TermData::List)
         }
-        ParsedType::OrDefault(_) => todo!(),
+        ParsedType::OrDefault(ordefault) => {
+            let t1 = from_rnix(ordefault.index().unwrap().node().clone(), terms, env);
+            let t2 = from_rnix(ordefault.default().unwrap(), terms, env);
+
+            terms.alloc(TermData::Or(t1, t2))
+        }
         ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), terms, env),
         ParsedType::Root(root) => from_rnix(root.inner().unwrap(), terms, env),
         ParsedType::AttrSet(attrs) => {
