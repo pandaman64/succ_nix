@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    convert::TryFrom,
     fmt,
 };
 
@@ -179,31 +180,33 @@ pub fn from_rnix<'a>(
     use rnix::types::*;
     use rnix::SyntaxKind::*;
 
-    match ast.kind() {
-        NODE_ROOT => {
-            let root = Root::cast(ast).unwrap();
-            from_rnix(root.inner().unwrap(), terms, env)
+    match match ParsedType::try_from(ast) {
+        Ok(a) => a,
+        _ => unreachable!(),
+    } {
+        ParsedType::Apply(apply) => {
+            let t1 = from_rnix(apply.lambda().unwrap(), terms, env);
+            let t2 = from_rnix(apply.value().unwrap(), terms, env);
+
+            terms.alloc(TermData::App(t1, t2))
         }
-        NODE_PAREN => {
-            let paren = Paren::cast(ast).unwrap();
-            from_rnix(paren.inner().unwrap(), terms, env)
+        ParsedType::Assert(_) => todo!(),
+        ParsedType::Ident(ident) => env.get(ident.as_str()).unwrap(),
+        ParsedType::IfElse(ifelse) => {
+            let c = from_rnix(ifelse.condition().unwrap(), terms, env);
+            let t = from_rnix(ifelse.body().unwrap(), terms, env);
+            let e = from_rnix(ifelse.else_body().unwrap(), terms, env);
+
+            terms.alloc(TermData::If(c, t, e))
         }
-        NODE_LITERAL => {
-            // the child node must be one of float, integer, path, and uri
-            let value = Value::cast(ast).unwrap();
-            match value.to_value().unwrap() {
-                rnix::value::Value::Float(_) => todo!(),
-                rnix::value::Value::Integer(_) => terms.alloc(TermData::Integer),
-                rnix::value::Value::String(_) => terms.alloc(TermData::String),
-                rnix::value::Value::Path(_, _) => terms.alloc(TermData::Path),
-            }
+        ParsedType::Select(select) => {
+            let t = from_rnix(select.set().unwrap(), terms, env);
+            // TODO: non-ident selections
+            let f = Ident::cast(select.index().unwrap()).unwrap();
+
+            terms.alloc(TermData::Select(t, f.as_str().into()))
         }
-        NODE_IDENT => {
-            let ident = Ident::cast(ast).unwrap();
-            env.get(ident.as_str()).unwrap()
-        }
-        NODE_LAMBDA => {
-            let lambda = Lambda::cast(ast).unwrap();
+        ParsedType::Lambda(lambda) => {
             let arg = lambda.arg().unwrap();
             let body = lambda.body().unwrap();
 
@@ -274,26 +277,9 @@ pub fn from_rnix<'a>(
                 _ => unreachable!(),
             }
         }
-        NODE_APPLY => {
-            let apply = Apply::cast(ast).unwrap();
-
-            let t1 = from_rnix(apply.lambda().unwrap(), terms, env);
-            let t2 = from_rnix(apply.value().unwrap(), terms, env);
-
-            terms.alloc(TermData::App(t1, t2))
-        }
-        NODE_IF_ELSE => {
-            let ifelse = IfElse::cast(ast).unwrap();
-
-            let c = from_rnix(ifelse.condition().unwrap(), terms, env);
-            let t = from_rnix(ifelse.body().unwrap(), terms, env);
-            let e = from_rnix(ifelse.else_body().unwrap(), terms, env);
-
-            terms.alloc(TermData::If(c, t, e))
-        }
-        NODE_LET_IN => {
+        ParsedType::LegacyLet(_) => todo!(),
+        ParsedType::LetIn(letin) => {
             let mut env = env.clone();
-            let letin = LetIn::cast(ast).unwrap();
 
             let names: BTreeSet<_> = letin
                 .entries()
@@ -330,10 +316,11 @@ pub fn from_rnix<'a>(
 
             terms.alloc(TermData::Let(ids, descriptor, t))
         }
-        NODE_LEGACY_LET => todo!(),
-        NODE_ATTR_SET => {
-            let attrs = AttrSet::cast(ast).unwrap();
-
+        ParsedType::List(_) => todo!(),
+        ParsedType::OrDefault(_) => todo!(),
+        ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), terms, env),
+        ParsedType::Root(root) => from_rnix(root.inner().unwrap(), terms, env),
+        ParsedType::AttrSet(attrs) => {
             if attrs.recursive() {
                 // given `rec { x = y; y = ...; }`, we desugar it to
                 // ```
@@ -406,15 +393,28 @@ pub fn from_rnix<'a>(
                 terms.alloc(TermData::AttrSet(descriptor))
             }
         }
-        NODE_SELECT => {
-            let select = Select::cast(ast).unwrap();
+        ParsedType::UnaryOp(_) => todo!(),
+        ParsedType::BinOp(_) => todo!(),
+        ParsedType::Str(_) => terms.alloc(TermData::String),
+        ParsedType::Value(value) => {
+            use rnix::value::Value;
 
-            let t = from_rnix(select.set().unwrap(), terms, env);
-            // TODO: non-ident selections
-            let f = Ident::cast(select.index().unwrap()).unwrap();
-
-            terms.alloc(TermData::Select(t, f.as_str().into()))
+            match value.to_value().unwrap() {
+                Value::Float(_) => todo!(),
+                Value::Integer(_) => terms.alloc(TermData::Integer),
+                Value::String(_) => terms.alloc(TermData::String),
+                Value::Path(_, _) => terms.alloc(TermData::Path),
+            }
         }
-        k => todo!("unsupported node: {:?}", k),
+        ParsedType::With(_) => todo!(),
+        ParsedType::Error(_) => todo!(),
+        ParsedType::Key(_) => unreachable!(),
+        ParsedType::Dynamic(_) => unreachable!(),
+        ParsedType::KeyValue(_) => unreachable!(),
+        ParsedType::PatBind(_) => unreachable!(),
+        ParsedType::PatEntry(_) => unreachable!(),
+        ParsedType::Pattern(_) => unreachable!(),
+        ParsedType::Inherit(_) => unreachable!(),
+        ParsedType::InheritFrom(_) => unreachable!(),
     }
 }
