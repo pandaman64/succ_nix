@@ -819,6 +819,32 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (t1_ty.sup(&t2_ty), Constraint::conj(vec![t1_c, t2_c]))
         }
+        UnaryOp(kind, t) => {
+            use hir::UnaryOpKind::*;
+
+            match kind {
+                BooleanNeg => {
+                    let (t_ty, t_c) = success_type(env, t);
+
+                    let constraints = Constraint::conj(vec![
+                        // CR pandaman: consider constructing a constraint like
+                        // `(τ_t ⊂ tt ∧ τ_ret ⊂ ff) ∨ (τ_t ⊂ ff ∧ τ_ret ⊂ tt)`
+                        Constraint::subset(t_ty, Type::boolean()),
+                        t_c,
+                    ]);
+
+                    (Type::boolean(), constraints)
+                }
+                IntegerNeg => {
+                    let (t_ty, t_c) = success_type(env, t);
+
+                    let constraints =
+                        Constraint::conj(vec![Constraint::subset(t_ty, Type::integer()), t_c]);
+
+                    (Type::integer(), constraints)
+                }
+            }
+        }
     }
 }
 

@@ -77,6 +77,14 @@ impl<'a> KeyValueDescriptor<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UnaryOpKind {
+    // !: boolean -> boolean
+    BooleanNeg,
+    // -: integer -> integer
+    IntegerNeg,
+}
+
 // alpha-converted term
 pub type Term<'a> = &'a TermData<'a>;
 #[derive(Debug, Clone)]
@@ -96,6 +104,7 @@ pub enum TermData<'a> {
     AttrSet(KeyValueDescriptor<'a>),
     Select(Term<'a>, String),
     Or(Term<'a>, Term<'a>),
+    UnaryOp(UnaryOpKind, Term<'a>),
 }
 
 impl fmt::Display for TermData<'_> {
@@ -172,6 +181,17 @@ impl TermData<'_> {
                 t1.fmt(f, level)?;
                 f.write_str(" or ")?;
                 t2.fmt(f, level)
+            }
+            UnaryOp(kind, t) => {
+                use UnaryOpKind::*;
+
+                let op = match kind {
+                    BooleanNeg => "!",
+                    IntegerNeg => "-",
+                };
+
+                f.write_str(op)?;
+                t.fmt(f, level)
             }
         }
     }
@@ -413,7 +433,15 @@ pub fn from_rnix<'a>(
                 terms.alloc(TermData::AttrSet(descriptor))
             }
         }
-        ParsedType::UnaryOp(_) => todo!(),
+        ParsedType::UnaryOp(op) => {
+            let kind = match op.operator() {
+                UnaryOpKind::Invert => self::UnaryOpKind::BooleanNeg,
+                UnaryOpKind::Negate => self::UnaryOpKind::IntegerNeg,
+            };
+            let value = from_rnix(op.value().unwrap(), terms, env);
+
+            terms.alloc(TermData::UnaryOp(kind, value))
+        }
         ParsedType::BinOp(_) => todo!(),
         ParsedType::Str(_) => terms.alloc(TermData::String),
         ParsedType::Value(value) => {
