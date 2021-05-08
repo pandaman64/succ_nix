@@ -234,6 +234,22 @@ impl Type {
         }
     }
 
+    pub fn any_attr_set() -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            integer: Default::default(),
+            list: Default::default(),
+            path: Default::default(),
+            string: Default::default(),
+            vars: Default::default(),
+            fun: Default::default(),
+            attrs: AttrSetDomain::new(AttrSetType {
+                attrs: Default::default(),
+                rest: Type::any().into(),
+            }),
+        }
+    }
+
     pub fn none() -> Self {
         Type::Union {
             boolean: Default::default(),
@@ -775,6 +791,92 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             }
         }
         AttrSet(attrs) => type_descriptor(env, attrs),
+        UnaryOp(kind, t) => {
+            use hir::UnaryOpKind::*;
+
+            match kind {
+                BooleanNeg => {
+                    let (t_ty, t_c) = success_type(env, t);
+
+                    let constraints = Constraint::conj(vec![
+                        // CR pandaman: consider constructing a constraint like
+                        // `(τ_t ⊂ tt ∧ τ_ret ⊂ ff) ∨ (τ_t ⊂ ff ∧ τ_ret ⊂ tt)`
+                        Constraint::subset(t_ty, Type::boolean()),
+                        t_c,
+                    ]);
+
+                    (Type::boolean(), constraints)
+                }
+                IntegerNeg => {
+                    let (t_ty, t_c) = success_type(env, t);
+
+                    let constraints =
+                        Constraint::conj(vec![Constraint::subset(t_ty, Type::integer()), t_c]);
+
+                    (Type::integer(), constraints)
+                }
+            }
+        }
+        BinOp(kind, t1, t2) => {
+            use hir::BinOpKind::*;
+
+            let (t1_ty, t1_c) = success_type(env, t1);
+            let (t2_ty, t2_c) = success_type(env, t2);
+            let ret_ty = fresh_tvar();
+
+            let mut constraints = match kind {
+                Add | Sub | Mul | Div => {
+                    vec![
+                        Constraint::subset(t1_ty, Type::integer()),
+                        Constraint::subset(t2_ty, Type::integer()),
+                        Constraint::subset(ret_ty.clone(), Type::integer()),
+                    ]
+                }
+                And | Or | Implication => {
+                    vec![
+                        Constraint::subset(t1_ty, Type::boolean()),
+                        // Due to short-curcuiting, the second argument can be any type
+                        // e.g. `false && 100 = false`
+                        Constraint::subset(t2_ty, Type::any()),
+                        Constraint::subset(ret_ty.clone(), Type::boolean()),
+                    ]
+                }
+                Equal | NotEqual => {
+                    vec![
+                        Constraint::subset(t1_ty, Type::any()),
+                        Constraint::subset(t2_ty, Type::any()),
+                        Constraint::subset(ret_ty.clone(), Type::boolean()),
+                    ]
+                }
+                Less | LessOrEq | Greater | GreaterOrEq => {
+                    vec![
+                        Constraint::subset(t1_ty, Type::any()),
+                        Constraint::subset(t2_ty, Type::any()),
+                        Constraint::subset(ret_ty.clone(), Type::boolean()),
+                    ]
+                }
+                Concat => {
+                    vec![
+                        Constraint::subset(t1_ty, Type::list()),
+                        Constraint::subset(t2_ty, Type::list()),
+                        Constraint::subset(ret_ty.clone(), Type::list()),
+                    ]
+                }
+                Update => {
+                    vec![
+                        // arguments must be attrsets
+                        Constraint::subset(t1_ty, Type::any_attr_set()),
+                        Constraint::subset(t2_ty, Type::any_attr_set()),
+                        Constraint::subset(ret_ty.clone(), Type::any_attr_set()),
+                    ]
+                }
+            };
+
+            constraints.push(t1_c);
+            constraints.push(t2_c);
+
+            (ret_ty, Constraint::conj(constraints))
+        }
         Select(t, x) => {
             let (t_ty, t_c) = success_type(env, t);
             let tx_ty = fresh_tvar();
@@ -819,31 +921,18 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (t1_ty.sup(&t2_ty), Constraint::conj(vec![t1_c, t2_c]))
         }
-        UnaryOp(kind, t) => {
-            use hir::UnaryOpKind::*;
+        HasAttr(t) => {
+            let (t_ty, t_c) = success_type(env, t);
+            let ret_ty = fresh_tvar();
 
-            match kind {
-                BooleanNeg => {
-                    let (t_ty, t_c) = success_type(env, t);
-
-                    let constraints = Constraint::conj(vec![
-                        // CR pandaman: consider constructing a constraint like
-                        // `(τ_t ⊂ tt ∧ τ_ret ⊂ ff) ∨ (τ_t ⊂ ff ∧ τ_ret ⊂ tt)`
-                        Constraint::subset(t_ty, Type::boolean()),
-                        t_c,
-                    ]);
-
-                    (Type::boolean(), constraints)
-                }
-                IntegerNeg => {
-                    let (t_ty, t_c) = success_type(env, t);
-
-                    let constraints =
-                        Constraint::conj(vec![Constraint::subset(t_ty, Type::integer()), t_c]);
-
-                    (Type::integer(), constraints)
-                }
-            }
+            (
+                ret_ty.clone(),
+                Constraint::conj(vec![
+                    Constraint::subset(t_ty, Type::any_attr_set()),
+                    Constraint::subset(ret_ty, Type::boolean()),
+                    t_c,
+                ]),
+            )
         }
     }
 }

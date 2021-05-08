@@ -85,6 +85,38 @@ pub enum UnaryOpKind {
     IntegerNeg,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BinOpKind {
+    // arithmetics: integer -> integer -> integer
+    Add,
+    Sub,
+    Mul,
+    Div,
+
+    // logical operators: boolean -> any -> boolean
+    And,
+    Or,
+    Implication,
+
+    // equalities: any -> any -> boolean
+    Equal,
+    NotEqual,
+
+    // comparisons: any -> any -> boolean
+    // it is possible to limit argument types like (integer | string)
+    Less,
+    LessOrEq,
+    Greater,
+    GreaterOrEq,
+
+    // list concatnation: list -> list -> list
+    Concat,
+
+    // attrset update: any -> any -> any
+    Update,
+    // other binary operators have distinct HIR variants
+}
+
 // alpha-converted term
 pub type Term<'a> = &'a TermData<'a>;
 #[derive(Debug, Clone)]
@@ -92,6 +124,7 @@ pub enum TermData<'a> {
     True,
     False,
     Integer,
+    // CR pandaman: include elements
     List,
     Path,
     String,
@@ -102,9 +135,12 @@ pub enum TermData<'a> {
     If(Term<'a>, Term<'a>, Term<'a>),
     Let(BTreeMap<String, Id>, KeyValueDescriptor<'a>, Term<'a>),
     AttrSet(KeyValueDescriptor<'a>),
+    UnaryOp(UnaryOpKind, Term<'a>),
+    BinOp(BinOpKind, Term<'a>, Term<'a>),
     Select(Term<'a>, String),
     Or(Term<'a>, Term<'a>),
-    UnaryOp(UnaryOpKind, Term<'a>),
+    // CR pandaman: handle attrpath
+    HasAttr(Term<'a>),
 }
 
 impl fmt::Display for TermData<'_> {
@@ -173,15 +209,6 @@ impl TermData<'_> {
                 e.fmt(f, level)
             }
             AttrSet(attrs) => attrs.fmt(f, level),
-            Select(t, field) => {
-                t.fmt(f, level)?;
-                write!(f, ".{}", field)
-            }
-            Or(t1, t2) => {
-                t1.fmt(f, level)?;
-                f.write_str(" or ")?;
-                t2.fmt(f, level)
-            }
             UnaryOp(kind, t) => {
                 use UnaryOpKind::*;
 
@@ -192,6 +219,44 @@ impl TermData<'_> {
 
                 f.write_str(op)?;
                 t.fmt(f, level)
+            }
+            BinOp(kind, t1, t2) => {
+                use BinOpKind::*;
+
+                let op = match kind {
+                    Add => "+",
+                    Sub => "-",
+                    Mul => "*",
+                    Div => "/",
+                    And => "&&",
+                    Or => "||",
+                    Implication => "->",
+                    Equal => "==",
+                    NotEqual => "!=",
+                    Less => "<",
+                    LessOrEq => "<=",
+                    Greater => ">",
+                    GreaterOrEq => ">=",
+                    Concat => "++",
+                    Update => "//",
+                };
+
+                t1.fmt(f, level)?;
+                write!(f, " {} ", op)?;
+                t2.fmt(f, level)
+            }
+            Select(t, field) => {
+                t.fmt(f, level)?;
+                write!(f, ".{}", field)
+            }
+            Or(t1, t2) => {
+                t1.fmt(f, level)?;
+                f.write_str(" or ")?;
+                t2.fmt(f, level)
+            }
+            HasAttr(t) => {
+                t.fmt(f, level)?;
+                f.write_str(" ? ...")
             }
         }
     }
@@ -442,7 +507,35 @@ pub fn from_rnix<'a>(
 
             terms.alloc(TermData::UnaryOp(kind, value))
         }
-        ParsedType::BinOp(_) => todo!(),
+        ParsedType::BinOp(op) => {
+            let kind = match op.operator() {
+                BinOpKind::Concat => self::BinOpKind::Concat,
+                BinOpKind::IsSet => {
+                    let t = from_rnix(op.lhs().unwrap(), terms, env);
+
+                    return terms.alloc(TermData::HasAttr(t));
+                }
+                BinOpKind::Update => self::BinOpKind::Update,
+                BinOpKind::Add => self::BinOpKind::Add,
+                BinOpKind::Sub => self::BinOpKind::Sub,
+                BinOpKind::Mul => self::BinOpKind::Mul,
+                BinOpKind::Div => self::BinOpKind::Div,
+                BinOpKind::And => self::BinOpKind::And,
+                BinOpKind::Equal => self::BinOpKind::Equal,
+                BinOpKind::Implication => self::BinOpKind::Implication,
+                BinOpKind::Less => self::BinOpKind::Less,
+                BinOpKind::LessOrEq => self::BinOpKind::LessOrEq,
+                BinOpKind::More => self::BinOpKind::Greater,
+                BinOpKind::MoreOrEq => self::BinOpKind::GreaterOrEq,
+                BinOpKind::NotEqual => self::BinOpKind::NotEqual,
+                BinOpKind::Or => self::BinOpKind::Or,
+            };
+
+            let t1 = from_rnix(op.lhs().unwrap(), terms, env);
+            let t2 = from_rnix(op.rhs().unwrap(), terms, env);
+
+            terms.alloc(TermData::BinOp(kind, t1, t2))
+        }
         ParsedType::Str(_) => terms.alloc(TermData::String),
         ParsedType::Value(value) => {
             use rnix::value::Value;
