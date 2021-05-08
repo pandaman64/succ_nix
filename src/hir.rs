@@ -125,7 +125,7 @@ pub enum TermData<'a> {
     False,
     Integer,
     // CR pandaman: include elements
-    List,
+    List(Vec<Term<'a>>),
     Path,
     String,
     Var(Id),
@@ -165,7 +165,7 @@ impl TermData<'_> {
             True => f.write_str("tt"),
             False => f.write_str("ff"),
             Integer => f.write_str("integer"),
-            List => f.write_str("list"),
+            List(_items) => f.write_str("list"),
             Path => f.write_str("path"),
             String => f.write_str("string"),
             Var(v) => write!(f, "{}", v),
@@ -413,9 +413,14 @@ pub fn from_rnix<'a>(
 
             terms.alloc(TermData::Let(ids, descriptor, t))
         }
-        ParsedType::List(_) => {
+        ParsedType::List(list) => {
             // CR pandaman: support polymorphic lists
-            terms.alloc(TermData::List)
+            let items = list
+                .items()
+                .map(|item| from_rnix(item, terms, env))
+                .collect();
+
+            terms.alloc(TermData::List(items))
         }
         ParsedType::OrDefault(ordefault) => {
             let t1 = from_rnix(ordefault.index().unwrap().node().clone(), terms, env);

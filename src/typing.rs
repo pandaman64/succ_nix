@@ -683,7 +683,17 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
         True => (Type::tt(), Constraint::top()),
         False => (Type::ff(), Constraint::top()),
         Integer => (Type::integer(), Constraint::top()),
-        List => (Type::list(), Constraint::top()),
+        List(items) => {
+            let constraints = items
+                .iter()
+                .map(|item| {
+                    let (_, c) = success_type(env, item);
+
+                    c
+                })
+                .collect();
+            (Type::list(), Constraint::conj(constraints))
+        }
         Path => (Type::path(), Constraint::top()),
         String => (Type::string(), Constraint::top()),
         // assumes every name is in the environment already
