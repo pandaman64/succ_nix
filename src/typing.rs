@@ -692,8 +692,15 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             let arg_ty = fresh_tvar();
             env.insert(*x, arg_ty.clone());
             let (ret_ty, c) = success_type(env, t);
+            let fun_ty = fresh_tvar();
 
-            (Type::fun(arg_ty, ret_ty), c)
+            (
+                fun_ty.clone(),
+                Constraint::conj(vec![
+                    Constraint::subset(fun_ty, Type::fun(arg_ty, ret_ty)),
+                    c,
+                ]),
+            )
         }
         App(t1, t2) => {
             let (ty1, c1) = success_type(env, t1);
@@ -797,23 +804,29 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             match kind {
                 BooleanNeg => {
                     let (t_ty, t_c) = success_type(env, t);
+                    let ret_ty = fresh_tvar();
 
                     let constraints = Constraint::conj(vec![
                         // CR pandaman: consider constructing a constraint like
                         // `(τ_t ⊂ tt ∧ τ_ret ⊂ ff) ∨ (τ_t ⊂ ff ∧ τ_ret ⊂ tt)`
                         Constraint::subset(t_ty, Type::boolean()),
+                        Constraint::subset(ret_ty.clone(), Type::boolean()),
                         t_c,
                     ]);
 
-                    (Type::boolean(), constraints)
+                    (ret_ty, constraints)
                 }
                 IntegerNeg => {
                     let (t_ty, t_c) = success_type(env, t);
+                    let ret_ty = fresh_tvar();
 
-                    let constraints =
-                        Constraint::conj(vec![Constraint::subset(t_ty, Type::integer()), t_c]);
+                    let constraints = Constraint::conj(vec![
+                        Constraint::subset(t_ty, Type::integer()),
+                        Constraint::subset(ret_ty.clone(), Type::integer()),
+                        t_c,
+                    ]);
 
-                    (Type::integer(), constraints)
+                    (ret_ty, constraints)
                 }
             }
         }
@@ -918,8 +931,16 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             // here, we just over-approximate these sets via `type(x.e) ∪ type(t)`.
             let (t1_ty, t1_c) = success_type(env, t1);
             let (t2_ty, t2_c) = success_type(env, t2);
+            let ret_ty = fresh_tvar();
 
-            (t1_ty.sup(&t2_ty), Constraint::conj(vec![t1_c, t2_c]))
+            (
+                ret_ty.clone(),
+                Constraint::conj(vec![
+                    Constraint::subset(ret_ty, t1_ty.sup(&t2_ty)),
+                    t1_c,
+                    t2_c,
+                ]),
+            )
         }
         HasAttr(t) => {
             let (t_ty, t_c) = success_type(env, t);
