@@ -684,7 +684,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
         False => (Type::ff(), Constraint::top()),
         Integer => (Type::integer(), Constraint::top()),
         List => (Type::list(), Constraint::top()),
-        Path => (Type::list(), Constraint::top()),
+        Path => (Type::path(), Constraint::top()),
         String => (Type::string(), Constraint::top()),
         // assumes every name is in the environment already
         Var(v) => (env.get(v).unwrap().clone(), Constraint::top()),
