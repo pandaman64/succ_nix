@@ -270,7 +270,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
 
             ctx.mk_term(TermData::Assert(cond, body))
         }
-        ParsedType::Ident(ident) => *env.get(ident.as_str()).unwrap(),
+        ParsedType::Ident(ident) => *env.get(ident.as_str()).expect(&format!("{} not found", ident.as_str())),
         ParsedType::IfElse(ifelse) => {
             let c = from_rnix(ifelse.condition().unwrap(), ctx, env);
             let t = from_rnix(ifelse.body().unwrap(), ctx, env);
