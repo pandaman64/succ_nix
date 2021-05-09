@@ -1,14 +1,8 @@
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    fmt,
-    hash::{Hash, Hasher},
-    ops::Deref,
-};
+use std::{cell::RefCell, collections::HashSet, fmt, hash::{Hash, Hasher}, ops::Deref, sync::atomic::{AtomicUsize, Ordering}};
 
 use typed_arena::Arena;
 
-use crate::hir::{Term, TermData};
+use crate::hir::{Id, Term, TermData};
 
 /// the type of interned (hash-consed) things, where equality and hash values are
 /// determined by its memory address
@@ -86,6 +80,7 @@ impl<'a, T> Deref for Interned<'a, T> {
 pub struct Context<'a> {
     terms_arena: Arena<TermData<'a>>,
     terms: RefCell<HashSet<&'a TermData<'a>>>,
+    current_hir_id: AtomicUsize,
 }
 
 impl<'a> Context<'a> {
@@ -93,7 +88,13 @@ impl<'a> Context<'a> {
         Self {
             terms_arena: Arena::new(),
             terms: RefCell::new(HashSet::new()),
+            current_hir_id: AtomicUsize::new(0),
         }
+    }
+
+    pub fn new_hir_id(&'a self) -> Id {
+        let current = self.current_hir_id.fetch_add(1, Ordering::Relaxed);
+        Id(current)
     }
 
     pub fn mk_term(&'a self, t: TermData<'a>) -> Term<'a> {

@@ -19,22 +19,22 @@ macro_rules! map {
 }
 
 pub fn env<'a>(ctx: &'a Context<'a>) -> (hir::AlphaEnv<'a>, typing::Environment) {
-    let abort_id = hir::Id::new();
-    let base_name_of_id = hir::Id::new();
-    let derivation_id = hir::Id::new();
-    let dir_of_id = hir::Id::new();
-    let false_id = hir::Id::new();
-    // let fetch_tarball_id = hir::Id::new();
-    let import_id = hir::Id::new();
-    let is_null_id = hir::Id::new();
-    let map_id = hir::Id::new();
-    let remove_attrs_id = hir::Id::new();
-    let throw_id = hir::Id::new();
-    let to_string_id = hir::Id::new();
-    let true_id = hir::Id::new();
+    let abort_id = ctx.new_hir_id();
+    let base_name_of_id = ctx.new_hir_id();
+    let derivation_id = ctx.new_hir_id();
+    let dir_of_id = ctx.new_hir_id();
+    let false_id = ctx.new_hir_id();
+    // let fetch_tarball_id = ctx.new_hir_id();
+    let import_id = ctx.new_hir_id();
+    let is_null_id = ctx.new_hir_id();
+    let map_id = ctx.new_hir_id();
+    let remove_attrs_id = ctx.new_hir_id();
+    let throw_id = ctx.new_hir_id();
+    let to_string_id = ctx.new_hir_id();
+    let true_id = ctx.new_hir_id();
 
     let (builtins_id, builtins_ty) = {
-        let builtins_id = hir::Id::new();
+        let builtins_id = ctx.new_hir_id();
         let builtins_ty = Type::attr_set(domain::AttrSetType {
             // CR pandaman: polymorphic types, number types (integer | float), missing attrs
             attrs: map![

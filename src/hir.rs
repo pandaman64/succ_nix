@@ -7,27 +7,11 @@ use std::{
 use crate::context::{Context, Interned};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(usize);
+pub struct Id(pub(crate) usize);
 
 impl fmt::Display for Id {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "_{}", self.0)
-    }
-}
-
-impl Default for Id {
-    fn default() -> Self {
-        Id::new()
-    }
-}
-
-impl Id {
-    pub fn new() -> Self {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static CURRENT_ID: AtomicUsize = AtomicUsize::new(0);
-
-        let current = CURRENT_ID.fetch_add(1, Ordering::Relaxed);
-        Self(current)
     }
 }
 
@@ -308,7 +292,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
             match arg.kind() {
                 NODE_IDENT => {
                     let arg = Ident::cast(arg).unwrap();
-                    let arg_id = Id::new();
+                    let arg_id = ctx.new_hir_id();
 
                     let mut env = env.clone();
                     env.insert(arg.as_str().into(), ctx.mk_term(TermData::Var(arg_id)));
@@ -329,12 +313,12 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     // And the desugaring reproduces this behavior.
                     let pattern = Pattern::cast(arg).unwrap();
 
-                    let args_id = Id::new();
+                    let args_id = ctx.new_hir_id();
                     let args_term = ctx.mk_term(TermData::Var(args_id));
                     let vn_ids: BTreeMap<String, Id> = pattern
                         .entries()
                         .map(|pat| {
-                            let id = Id::new();
+                            let id = ctx.new_hir_id();
                             let name = pat.name().unwrap().as_str().into();
 
                             (name, id)
@@ -387,7 +371,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     String::from(first.as_str())
                 })
                 .collect();
-            let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, Id::new())).collect();
+            let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, ctx.new_hir_id())).collect();
 
             for (name, id) in ids.iter() {
                 env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
@@ -448,7 +432,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                         String::from(first.as_str())
                     })
                     .collect();
-                let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, Id::new())).collect();
+                let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, ctx.new_hir_id())).collect();
 
                 for (name, id) in ids.iter() {
                     env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
