@@ -1,4 +1,5 @@
 // 型は単相だと思って全ての名前に対して単相の型を与える感じ
+pub mod builtins;
 mod context;
 mod domain;
 pub mod hir;
@@ -10,53 +11,14 @@ pub use typing::{success_type, Environment, Solution, Type};
 mod test {
     use super::*;
     use crate::{context::Context, domain::AttrSetType, typing::TypeErrorSink};
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
-    fn env() -> (HashMap<String, hir::Id>, Environment) {
-        let plus_ty = Type::fun(Type::integer(), Type::fun(Type::integer(), Type::integer()));
-        let builtins_id = hir::Id::new();
-        let builtins_ty = Type::attr_set(AttrSetType {
-            attrs: {
-                let mut attrs = BTreeMap::new();
-                attrs.insert("plus".into(), plus_ty);
-                attrs
-            },
-            rest: Type::none().into(),
-        });
-        let true_id = hir::Id::new();
-        let false_id = hir::Id::new();
-        (
-            vec![
-                (String::from("builtins"), builtins_id),
-                (String::from("true"), true_id),
-                (String::from("false"), false_id),
-            ]
-            .into_iter()
-            .collect(),
-            vec![
-                (builtins_id, builtins_ty),
-                (true_id, Type::tt()),
-                (false_id, Type::ff()),
-            ]
-            .into_iter()
-            .collect(),
-        )
-    }
-
-    fn run(
-        input: &str,
-        (name_env, mut ty_env): (HashMap<String, hir::Id>, Environment),
-    ) -> (Type, TypeErrorSink) {
+    fn run<'a>(input: &str) -> (Type, TypeErrorSink) {
         let ctx = Context::new();
+        let (alpha_env, mut ty_env) = builtins::env(&ctx);
+
         let ast = rnix::parse(input).node();
         eprintln!("ast = {:#?}", ast);
-        let alpha_env = name_env
-            .into_iter()
-            .map(|(v, id)| {
-                let t = ctx.mk_term(hir::TermData::Var(id));
-                (v, t)
-            })
-            .collect();
         let hir = hir::from_rnix(ast, &ctx, &alpha_env);
         eprintln!("hir = {}", hir);
 
@@ -80,15 +42,15 @@ mod test {
         (sol.map_ty(&t), sink)
     }
 
-    fn success(input: &str, env: (HashMap<String, hir::Id>, Environment), expected: Type) {
-        let (actual, sink) = run(input, env);
+    fn success(input: &str, expected: Type) {
+        let (actual, sink) = run(input);
 
         assert!(!sink.is_error());
         assert_eq!(actual, expected, "\n{} ≠ {}", actual, expected);
     }
 
-    fn fail(input: &str, env: (HashMap<String, hir::Id>, Environment)) {
-        let (_acutual, sink) = run(input, env);
+    fn fail(input: &str) {
+        let (_acutual, sink) = run(input);
 
         assert!(sink.is_error());
     }
@@ -97,35 +59,32 @@ mod test {
     fn test_not_first() {
         success(
             "x: y: ! x",
-            env(),
             Type::fun(Type::boolean(), Type::fun(Type::any(), Type::boolean())),
         );
     }
 
     #[test]
     fn test_id() {
-        success("x: x", env(), Type::fun(Type::any(), Type::any()));
+        success("x: x", Type::fun(Type::any(), Type::any()));
     }
 
     #[test]
     fn test_xx() {
         success(
             "x: x x",
-            env(),
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
     }
 
     #[test]
     fn test_not_id() {
-        fail("! (x: x)", env())
+        fail("! (x: x)")
     }
 
     #[test]
     fn test_branch() {
         success(
             "x: if x then ! x else x",
-            env(),
             Type::fun(Type::boolean(), Type::boolean()),
         );
     }
@@ -136,7 +95,6 @@ mod test {
         // If (F x) terminates, x = ff and F x = ff, which means F is typable with ff -> ff.
         success(
             "x: if x then x true else x",
-            env(),
             Type::fun(Type::ff(), Type::ff()),
         );
     }
@@ -145,7 +103,6 @@ mod test {
     fn test_let() {
         success(
             "let x = true; y = z: z x; in y",
-            env(),
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         )
     }
@@ -155,26 +112,24 @@ mod test {
     fn test_let_infinite_types() {
         // CR pandaman: 再帰型が体系に必要だと思います。
         // infinite loop. something is wrong
-        success("let x = x x; in x", env(), Type::any());
+        success("let x = x x; in x", Type::any());
         // from TAPL
         success(
             "let hungry = x: hungry; in hungry",
-            env(),
             Type::fun(Type::any(), Type::any()),
         );
     }
 
     #[test]
     fn test_let_fail() {
-        fail("let x = true; y = z: z x; in y x", env())
+        fail("let x = true; y = z: z x; in y x")
     }
 
     #[test]
     fn test_attr_set() {
-        success("{ x = true; y = z: z; }.x", env(), Type::tt());
+        success("{ x = true; y = z: z; }.x", Type::tt());
         success(
             "{ x = true; y = z: z; }.y",
-            env(),
             Type::fun(Type::any(), Type::any()),
         );
     }
@@ -183,7 +138,6 @@ mod test {
     fn test_rec() {
         success(
             "let f = x: if x then x else f (! x); in f",
-            env(),
             Type::fun(Type::boolean(), Type::tt()),
         );
     }
@@ -192,7 +146,6 @@ mod test {
     fn test_fix() {
         success(
             "let y = f: f (y f); in y",
-            env(),
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
     }
@@ -201,7 +154,6 @@ mod test {
     fn test_attr_set_arg() {
         success(
             "x: x.y",
-            env(),
             Type::fun(
                 Type::attr_set(AttrSetType {
                     attrs: {
@@ -220,7 +172,6 @@ mod test {
         // thefore, the following inference result is imprecise (rest must be none).
         success(
             "{ y }: y",
-            env(),
             Type::fun(
                 Type::attr_set(AttrSetType {
                     attrs: {
@@ -238,13 +189,11 @@ mod test {
     #[test]
     fn test_integer() {
         success(
-            "x: y: builtins.plus x y",
-            env(),
+            "x: y: builtins.add x y",
             Type::fun(Type::integer(), Type::fun(Type::integer(), Type::integer())),
         );
         success(
-            "{ x, y }: builtins.plus x y",
-            env(),
+            "{ x, y }: builtins.add x y",
             Type::fun(
                 Type::attr_set(AttrSetType {
                     attrs: {
@@ -262,14 +211,13 @@ mod test {
 
     #[test]
     fn test_fail_nonexistent_path() {
-        success("builtins.nonexistent", env(), Type::none());
+        success("builtins.nonexistent", Type::none());
     }
 
     #[test]
     fn test_attr_set_rec() {
         success(
             "rec { x = 100; y = x; }",
-            env(),
             Type::attr_set(AttrSetType {
                 attrs: {
                     let mut attrs = BTreeMap::new();
@@ -284,11 +232,10 @@ mod test {
 
     #[test]
     fn test_assert() {
-        success("assert true; 100", env(), Type::integer());
-        success("x: assert x; x", env(), Type::fun(Type::tt(), Type::tt()));
+        success("assert true; 100", Type::integer());
+        success("x: assert x; x", Type::fun(Type::tt(), Type::tt()));
         success(
             "x: assert !x; x",
-            env(),
             Type::fun(Type::boolean(), Type::boolean()),
         );
     }
