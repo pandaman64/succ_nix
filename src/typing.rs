@@ -16,6 +16,7 @@ pub enum Type {
         boolean: BoolDomain,
         integer: IntDomain,
         list: ListDomain,
+        null: NullDomain,
         path: PathDomain,
         string: StringDomain,
         vars: VarDomain,
@@ -36,6 +37,7 @@ impl fmt::Display for Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -59,6 +61,13 @@ impl fmt::Display for Type {
                         f.write_str(" ∪ ")?;
                     }
                     write!(f, "{}", list)?;
+                    first = false;
+                }
+                if !null.is_bottom() {
+                    if !first {
+                        f.write_str(" ∪ ")?;
+                    }
+                    write!(f, "{}", null)?;
                     first = false;
                 }
                 if !path.is_bottom() {
@@ -101,6 +110,7 @@ impl Type {
             },
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -117,6 +127,7 @@ impl Type {
             },
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -130,6 +141,7 @@ impl Type {
             boolean: BoolDomain { tt: true, ff: true },
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -143,6 +155,7 @@ impl Type {
             boolean: Default::default(),
             integer: IntDomain { is_all: true },
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -156,6 +169,21 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: ListDomain { is_all: true },
+            null: Default::default(),
+            path: Default::default(),
+            string: Default::default(),
+            vars: Default::default(),
+            fun: Default::default(),
+            attrs: Default::default(),
+        }
+    }
+
+    pub fn null() -> Self {
+        Type::Union {
+            boolean: Default::default(),
+            integer: Default::default(),
+            list: Default::default(),
+            null: NullDomain { is_all: true },
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -169,6 +197,7 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: PathDomain { is_all: true },
             string: Default::default(),
             vars: Default::default(),
@@ -182,6 +211,7 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: StringDomain { is_all: true },
             vars: Default::default(),
@@ -195,6 +225,7 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: VarDomain {
@@ -214,6 +245,7 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -227,6 +259,7 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -240,6 +273,7 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -256,6 +290,7 @@ impl Type {
             boolean: Default::default(),
             integer: Default::default(),
             list: Default::default(),
+            null: Default::default(),
             path: Default::default(),
             string: Default::default(),
             vars: Default::default(),
@@ -275,6 +310,7 @@ impl Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -282,6 +318,7 @@ impl Type {
                 attrs,
             } if integer.is_bottom()
                 && list.is_bottom()
+                && null.is_bottom()
                 && path.is_bottom()
                 && string.is_bottom()
                 && vars.is_bottom()
@@ -300,6 +337,7 @@ impl Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -307,6 +345,7 @@ impl Type {
                 attrs,
             } if boolean.is_bottom()
                 && list.is_bottom()
+                && null.is_bottom()
                 && path.is_bottom()
                 && string.is_bottom()
                 && vars.is_bottom()
@@ -325,6 +364,7 @@ impl Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -332,6 +372,7 @@ impl Type {
                 attrs,
             } if boolean.is_bottom()
                 && integer.is_bottom()
+                && null.is_bottom()
                 && path.is_bottom()
                 && string.is_bottom()
                 && vars.is_bottom()
@@ -344,12 +385,13 @@ impl Type {
         }
     }
 
-    pub fn as_path(&self) -> Option<&PathDomain> {
+    pub fn as_null(&self) -> Option<&NullDomain> {
         match self {
             Type::Union {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -358,6 +400,34 @@ impl Type {
             } if boolean.is_bottom()
                 && integer.is_bottom()
                 && list.is_bottom()
+                && path.is_bottom()
+                && string.is_bottom()
+                && vars.is_bottom()
+                && fun.is_bottom()
+                && attrs.is_bottom() =>
+            {
+                Some(null)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn as_path(&self) -> Option<&PathDomain> {
+        match self {
+            Type::Union {
+                boolean,
+                integer,
+                list,
+                null,
+                path,
+                string,
+                vars,
+                fun,
+                attrs,
+            } if boolean.is_bottom()
+                && integer.is_bottom()
+                && list.is_bottom()
+                && null.is_bottom()
                 && string.is_bottom()
                 && vars.is_bottom()
                 && fun.is_bottom()
@@ -375,6 +445,7 @@ impl Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -382,6 +453,7 @@ impl Type {
                 attrs,
             } if boolean.is_bottom()
                 && list.is_bottom()
+                && null.is_bottom()
                 && path.is_bottom()
                 && integer.is_bottom()
                 && string.is_bottom()
@@ -400,6 +472,7 @@ impl Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -407,6 +480,7 @@ impl Type {
                 attrs,
             } if boolean.is_bottom()
                 && list.is_bottom()
+                && null.is_bottom()
                 && path.is_bottom()
                 && integer.is_bottom()
                 && string.is_bottom()
@@ -425,6 +499,7 @@ impl Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -432,6 +507,7 @@ impl Type {
                 attrs,
             } if boolean.is_bottom()
                 && list.is_bottom()
+                && null.is_bottom()
                 && path.is_bottom()
                 && integer.is_bottom()
                 && string.is_bottom()
@@ -450,6 +526,7 @@ impl Type {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -457,6 +534,7 @@ impl Type {
                 attrs,
             } if boolean.is_bottom()
                 && list.is_bottom()
+                && null.is_bottom()
                 && path.is_bottom()
                 && integer.is_bottom()
                 && string.is_bottom()
@@ -488,6 +566,7 @@ impl Type {
                     boolean: b1,
                     integer: i1,
                     list: l1,
+                    null: n1,
                     path: p1,
                     string: s1,
                     vars: v1,
@@ -498,6 +577,7 @@ impl Type {
                     boolean: b2,
                     integer: i2,
                     list: l2,
+                    null: n2,
                     path: p2,
                     string: s2,
                     vars: v2,
@@ -508,6 +588,7 @@ impl Type {
                 let boolean = b1.sup(b2);
                 let integer = i1.sup(i2);
                 let list = l1.sup(l2);
+                let null = n1.sup(n2);
                 let path = p1.sup(p2);
                 let string = s1.sup(s2);
                 let vars = v1.sup(v2);
@@ -518,6 +599,7 @@ impl Type {
                     boolean,
                     integer,
                     list,
+                    null,
                     path,
                     string,
                     vars,
@@ -541,6 +623,7 @@ impl Type {
                     boolean: b1,
                     integer: i1,
                     list: l1,
+                    null: n1,
                     path: p1,
                     string: s1,
                     vars: v1,
@@ -551,6 +634,7 @@ impl Type {
                     boolean: b2,
                     integer: i2,
                     list: l2,
+                    null: n2,
                     path: p2,
                     string: s2,
                     vars: v2,
@@ -564,6 +648,7 @@ impl Type {
                 let boolean = b1.inf(b2);
                 let integer = i1.inf(i2);
                 let list = l1.inf(l2);
+                let null = n1.inf(n2);
                 let path = p1.inf(p2);
                 let string = s1.inf(s2);
                 let vars = Default::default();
@@ -574,6 +659,7 @@ impl Type {
                     boolean,
                     integer,
                     list,
+                    null,
                     path,
                     string,
                     vars,
@@ -695,6 +781,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                 .collect();
             (Type::list(), Constraint::conj(constraints))
         }
+        Null => (Type::null(), Constraint::top()),
         Path => (Type::path(), Constraint::top()),
         String => (Type::string(), Constraint::top()),
         // assumes every name is in the environment already
@@ -1030,6 +1117,7 @@ impl Solution {
                 boolean,
                 integer,
                 list,
+                null,
                 path,
                 string,
                 vars,
@@ -1041,6 +1129,7 @@ impl Solution {
                     boolean: *boolean,
                     integer: *integer,
                     list: *list,
+                    null: *null,
                     path: *path,
                     string: *string,
                     vars: Default::default(),

@@ -24,10 +24,12 @@ pub fn env<'a>(ctx: &'a Context<'a>) -> (hir::AlphaEnv<'a>, typing::Environment)
     let derivation_id = ctx.new_hir_id();
     let dir_of_id = ctx.new_hir_id();
     let false_id = ctx.new_hir_id();
+    // let fetch_url_id = ctx.new_hir_id();
     // let fetch_tarball_id = ctx.new_hir_id();
     let import_id = ctx.new_hir_id();
     let is_null_id = ctx.new_hir_id();
     let map_id = ctx.new_hir_id();
+    let null_id = ctx.new_hir_id();
     let remove_attrs_id = ctx.new_hir_id();
     let throw_id = ctx.new_hir_id();
     let to_string_id = ctx.new_hir_id();
@@ -96,7 +98,7 @@ pub fn env<'a>(ctx: &'a Context<'a>) -> (hir::AlphaEnv<'a>, typing::Environment)
                 "mul" => Type::fun(Type::integer(), Type::fun(Type::integer(), Type::integer())),
                 "nixPath" => Type::list(),
                 "nixVersion" => Type::string(),
-                // "null" => Type::null(),
+                "null" => Type::null(),
                 "parseDrvName" => Type::fun(Type::string(), Type::any_attr_set()),
                 "path" => Type::fun(Type::any_attr_set(), Type::path()),
                 "pathExists" => Type::fun(Type::path(), Type::boolean()),
@@ -140,6 +142,7 @@ pub fn env<'a>(ctx: &'a Context<'a>) -> (hir::AlphaEnv<'a>, typing::Environment)
             "import" => ctx.mk_term(TermData::Var(import_id)),
             "isNull" => ctx.mk_term(TermData::Var(is_null_id)),
             "map" => ctx.mk_term(TermData::Var(map_id)),
+            "null" => ctx.mk_term(TermData::Null),
             "removeAttrs" => ctx.mk_term(TermData::Var(remove_attrs_id)),
             "throw" => ctx.mk_term(TermData::Var(throw_id)),
             "toString" => ctx.mk_term(TermData::Var(to_string_id)),
@@ -155,6 +158,7 @@ pub fn env<'a>(ctx: &'a Context<'a>) -> (hir::AlphaEnv<'a>, typing::Environment)
             import_id => Type::fun(Type::path(), Type::any()),
             is_null_id => Type::fun(Type::any(), Type::boolean()),
             map_id => Type::fun(Type::fun(Type::any(), Type::any()), Type::fun(Type::list(), Type::list())),
+            null_id => Type::null(),
             remove_attrs_id => Type::fun(Type::any_attr_set(), Type::fun(Type::list(), Type::any_attr_set())),
             throw_id => Type::fun(Type::string(), Type::none()),
             to_string_id => Type::fun(Type::any(), Type::string()),

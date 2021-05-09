@@ -112,6 +112,7 @@ pub enum TermData<'a> {
     Integer,
     // CR pandaman: include elements
     List(Vec<Term<'a>>),
+    Null,
     Path,
     String,
     Var(Id),
@@ -152,6 +153,7 @@ impl TermData<'_> {
             False => f.write_str("ff"),
             Integer => f.write_str("integer"),
             List(_items) => f.write_str("list"),
+            Null => f.write_str("null"),
             Path => f.write_str("path"),
             String => f.write_str("string"),
             Var(v) => write!(f, "{}", v),
