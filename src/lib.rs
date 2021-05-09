@@ -5,11 +5,11 @@ mod domain;
 pub mod hir;
 mod typing;
 
-pub use typing::{success_type, Environment, Solution, Type};
 use context::Context;
 use typing::TypeErrorSink;
+pub use typing::{success_type, Environment, Solution, Type};
 
-pub fn run<'a>(input: &str) -> (Type, Solution, TypeErrorSink) {
+pub fn run(input: &str) -> (Type, Solution, TypeErrorSink) {
     let ctx = Context::new();
     let (alpha_env, mut ty_env) = builtins::env(&ctx);
 
@@ -41,8 +41,8 @@ pub fn run<'a>(input: &str) -> (Type, Solution, TypeErrorSink) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::collections::BTreeMap;
     use domain::AttrSetType;
+    use std::collections::BTreeMap;
 
     fn success(input: &str, expected: Type) {
         let (ty, sol, sink) = run(input);

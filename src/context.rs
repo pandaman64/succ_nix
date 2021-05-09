@@ -1,4 +1,11 @@
-use std::{cell::RefCell, collections::HashSet, fmt, hash::{Hash, Hasher}, ops::Deref, sync::atomic::{AtomicUsize, Ordering}};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    fmt,
+    hash::{Hash, Hasher},
+    ops::Deref,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use typed_arena::Arena;
 

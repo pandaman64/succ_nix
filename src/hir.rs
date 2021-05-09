@@ -272,7 +272,9 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
 
             ctx.mk_term(TermData::Assert(cond, body))
         }
-        ParsedType::Ident(ident) => *env.get(ident.as_str()).expect(&format!("{} not found", ident.as_str())),
+        ParsedType::Ident(ident) => *env
+            .get(ident.as_str())
+            .unwrap_or_else(|| panic!("{} not found", ident.as_str())),
         ParsedType::IfElse(ifelse) => {
             let c = from_rnix(ifelse.condition().unwrap(), ctx, env);
             let t = from_rnix(ifelse.body().unwrap(), ctx, env);
@@ -372,8 +374,16 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
 
                     String::from(first.as_str())
                 })
+                .chain(letin.inherits().flat_map(|inherit| {
+                    // CR pandaman: check for duplicates?
+                    // inherits (foo) bar baz; -> bar baz
+                    inherit.idents().map(|ident| String::from(ident.as_str()))
+                }))
                 .collect();
-            let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, ctx.new_hir_id())).collect();
+            let ids: BTreeMap<_, _> = names
+                .into_iter()
+                .map(|name| (name, ctx.new_hir_id()))
+                .collect();
 
             for (name, id) in ids.iter() {
                 env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
@@ -392,6 +402,29 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     }),
                     t,
                 );
+            }
+            for inherit in letin.inherits() {
+                match inherit.from() {
+                    Some(from) => {
+                        let from = from_rnix(from.inner().unwrap(), ctx, &env);
+
+                        for ident in inherit.idents() {
+                            descriptor.push(
+                                std::iter::once(ident.as_str().into()),
+                                ctx.mk_term(TermData::Select(from, ident.as_str().into())),
+                            );
+                        }
+                    }
+                    None => {
+                        for ident in inherit.idents() {
+                            descriptor.push(
+                                std::iter::once(ident.as_str().into()),
+                                *env.get(ident.as_str())
+                                    .unwrap_or_else(|| panic!("{} not found", ident.as_str())),
+                            );
+                        }
+                    }
+                }
             }
             let t = from_rnix(letin.body().unwrap(), ctx, &env);
 
@@ -413,11 +446,12 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
         ParsedType::Root(root) => from_rnix(root.inner().unwrap(), ctx, env),
         ParsedType::AttrSet(attrs) => {
             if attrs.recursive() {
-                // given `rec { x = y; y = ...; }`, we desugar it to
+                // given `rec { x = y; y = ...; inherit (t) bar; }`, we desugar it to
                 // ```
                 // let
                 //   x = y;
                 //   y = ...;
+                //   bar = t.bar;
                 // in
                 // {
                 //   x = x;
@@ -433,8 +467,16 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
 
                         String::from(first.as_str())
                     })
+                    .chain(attrs.inherits().flat_map(|inherit| {
+                        // CR pandaman: check for duplicates?
+                        // inherits (foo) bar baz; -> bar baz
+                        inherit.idents().map(|ident| String::from(ident.as_str()))
+                    }))
                     .collect();
-                let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, ctx.new_hir_id())).collect();
+                let ids: BTreeMap<_, _> = names
+                    .into_iter()
+                    .map(|name| (name, ctx.new_hir_id()))
+                    .collect();
 
                 for (name, id) in ids.iter() {
                     env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
@@ -453,6 +495,29 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                         }),
                         t,
                     );
+                }
+                for inherit in attrs.inherits() {
+                    match inherit.from() {
+                        Some(from) => {
+                            let from = from_rnix(from.inner().unwrap(), ctx, &env);
+
+                            for ident in inherit.idents() {
+                                let_descriptor.push(
+                                    std::iter::once(ident.as_str().into()),
+                                    ctx.mk_term(TermData::Select(from, ident.as_str().into())),
+                                );
+                            }
+                        }
+                        None => {
+                            for ident in inherit.idents() {
+                                let_descriptor.push(
+                                    std::iter::once(ident.as_str().into()),
+                                    *env.get(ident.as_str())
+                                        .unwrap_or_else(|| panic!("{} not found", ident.as_str())),
+                                );
+                            }
+                        }
+                    }
                 }
 
                 let mut attr_set_descriptor = KeyValueDescriptor::default();
@@ -479,6 +544,29 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                         key.path().map(|x| Ident::cast(x).unwrap().as_str().into()),
                         t,
                     );
+                }
+                for inherit in attrs.inherits() {
+                    match inherit.from() {
+                        Some(from) => {
+                            let from = from_rnix(from.inner().unwrap(), ctx, &env);
+
+                            for ident in inherit.idents() {
+                                descriptor.push(
+                                    std::iter::once(ident.as_str().into()),
+                                    ctx.mk_term(TermData::Select(from, ident.as_str().into())),
+                                );
+                            }
+                        }
+                        None => {
+                            for ident in inherit.idents() {
+                                descriptor.push(
+                                    std::iter::once(ident.as_str().into()),
+                                    *env.get(ident.as_str())
+                                        .unwrap_or_else(|| panic!("{} not found", ident.as_str())),
+                                );
+                            }
+                        }
+                    }
                 }
 
                 ctx.mk_term(TermData::AttrSet(descriptor))
