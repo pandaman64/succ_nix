@@ -252,6 +252,29 @@ impl TermData<'_> {
 
 pub type AlphaEnv<'a> = HashMap<String, Term<'a>>;
 
+fn static_path(ast: rnix::SyntaxNode) -> String {
+    use rnix::types::*;
+
+    match match ParsedType::try_from(ast) {
+        Ok(a) => a,
+        _ => unreachable!(),
+    } {
+        ParsedType::Ident(ident) => ident.as_str().into(),
+        ParsedType::Str(string) => {
+            let parts: Vec<_> = string
+                .parts()
+                .into_iter()
+                .map(|part| match part {
+                    rnix::StrPart::Literal(s) => s,
+                    rnix::StrPart::Ast(_) => todo!(),
+                })
+                .collect();
+            parts.concat()
+        }
+        _ => unreachable!(),
+    }
+}
+
 pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv<'a>) -> Term<'a> {
     use rnix::types::*;
     use rnix::SyntaxKind::*;
@@ -284,8 +307,8 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
         }
         ParsedType::Select(select) => {
             let t = from_rnix(select.set().unwrap(), ctx, env);
-            // TODO: non-ident selections
-            let f = Ident::cast(select.index().unwrap()).unwrap();
+            // TODO: dynamic selections
+            let f = static_path(select.index().unwrap());
 
             ctx.mk_term(TermData::Select(t, f.as_str().into()))
         }
@@ -369,10 +392,9 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                 .map(|kv| {
                     let key = kv.key().unwrap();
                     // dynamic attributes not allowed in let, so first element in
-                    // the path must be an identifier
-                    let first = Ident::cast(key.path().next().unwrap()).unwrap();
-
-                    String::from(first.as_str())
+                    // the path must be static
+                    let first = key.path().next().unwrap();
+                    static_path(first)
                 })
                 .chain(letin.inherits().flat_map(|inherit| {
                     // CR pandaman: check for duplicates?
@@ -398,7 +420,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                 descriptor.push(
                     key.path().map(|x| {
                         // CR pandaman: consider dynamic attributes in non-first elements
-                        Ident::cast(x).unwrap().as_str().into()
+                        static_path(x)
                     }),
                     t,
                 );
@@ -463,9 +485,8 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     .map(|kv| {
                         let key = kv.key().unwrap();
                         // CR pandaman: dynamic attributes are allowed in attrsets
-                        let first = Ident::cast(key.path().next().unwrap()).unwrap();
-
-                        String::from(first.as_str())
+                        let first = key.path().next().unwrap();
+                        static_path(first)
                     })
                     .chain(attrs.inherits().flat_map(|inherit| {
                         // CR pandaman: check for duplicates?
@@ -491,7 +512,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     let_descriptor.push(
                         key.path().map(|x| {
                             // CR pandaman: consider dynamic attributes
-                            Ident::cast(x).unwrap().as_str().into()
+                            static_path(x)
                         }),
                         t,
                     );
@@ -540,10 +561,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     let value = attr.value().unwrap();
 
                     let t = from_rnix(value, ctx, env);
-                    descriptor.push(
-                        key.path().map(|x| Ident::cast(x).unwrap().as_str().into()),
-                        t,
-                    );
+                    descriptor.push(key.path().map(static_path), t);
                 }
                 for inherit in attrs.inherits() {
                     match inherit.from() {

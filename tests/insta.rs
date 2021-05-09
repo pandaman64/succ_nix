@@ -1,6 +1,8 @@
 use std::fs;
 
 #[test]
+// tooooo slow :(
+#[ignore]
 fn test_insta() {
     insta::glob!("corpus/*.nix", |path| {
         let input = fs::read_to_string(path).unwrap();
