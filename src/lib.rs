@@ -1,4 +1,5 @@
 // 型は単相だと思って全ての名前に対して単相の型を与える感じ
+mod context;
 mod domain;
 pub mod hir;
 mod typing;
@@ -8,7 +9,7 @@ pub use typing::{success_type, Environment, Solution, Type};
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{domain::AttrSetType, typing::TypeErrorSink};
+    use crate::{context::Context, domain::AttrSetType, typing::TypeErrorSink};
     use std::collections::{BTreeMap, HashMap};
 
     fn env() -> (HashMap<String, hir::Id>, Environment) {
@@ -46,17 +47,17 @@ mod test {
         input: &str,
         (name_env, mut ty_env): (HashMap<String, hir::Id>, Environment),
     ) -> (Type, TypeErrorSink) {
+        let ctx = Context::new();
         let ast = rnix::parse(input).node();
         eprintln!("ast = {:#?}", ast);
-        let terms = typed_arena::Arena::new();
         let alpha_env = name_env
             .into_iter()
             .map(|(v, id)| {
-                let t = terms.alloc(hir::TermData::Var(id));
-                (v, &*t)
+                let t = ctx.mk_term(hir::TermData::Var(id));
+                (v, t)
             })
             .collect();
-        let hir = hir::from_rnix(ast, &terms, &alpha_env);
+        let hir = hir::from_rnix(ast, &ctx, &alpha_env);
         eprintln!("hir = {}", hir);
 
         let (t, c) = success_type(&mut ty_env, &hir);

@@ -4,6 +4,8 @@ use std::{
     fmt,
 };
 
+use crate::context::{Context, Interned};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(usize);
 
@@ -29,7 +31,7 @@ impl Id {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KeyValueDescriptor<'a> {
     Leaf(Term<'a>),
     Internal(BTreeMap<String, KeyValueDescriptor<'a>>),
@@ -118,8 +120,8 @@ pub enum BinOpKind {
 }
 
 // alpha-converted term
-pub type Term<'a> = &'a TermData<'a>;
-#[derive(Debug, Clone)]
+pub type Term<'a> = Interned<'a, TermData<'a>>;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TermData<'a> {
     True,
     False,
@@ -264,11 +266,7 @@ impl TermData<'_> {
 
 pub type AlphaEnv<'a> = HashMap<String, Term<'a>>;
 
-pub fn from_rnix<'a>(
-    ast: rnix::SyntaxNode,
-    terms: &'a typed_arena::Arena<TermData<'a>>,
-    env: &AlphaEnv<'a>,
-) -> Term<'a> {
+pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv<'a>) -> Term<'a> {
     use rnix::types::*;
     use rnix::SyntaxKind::*;
 
@@ -277,31 +275,31 @@ pub fn from_rnix<'a>(
         _ => unreachable!(),
     } {
         ParsedType::Apply(apply) => {
-            let t1 = from_rnix(apply.lambda().unwrap(), terms, env);
-            let t2 = from_rnix(apply.value().unwrap(), terms, env);
+            let t1 = from_rnix(apply.lambda().unwrap(), ctx, env);
+            let t2 = from_rnix(apply.value().unwrap(), ctx, env);
 
-            terms.alloc(TermData::App(t1, t2))
+            ctx.mk_term(TermData::App(t1, t2))
         }
         ParsedType::Assert(assert) => {
-            let cond = from_rnix(assert.condition().unwrap(), terms, env);
-            let body = from_rnix(assert.body().unwrap(), terms, env);
+            let cond = from_rnix(assert.condition().unwrap(), ctx, env);
+            let body = from_rnix(assert.body().unwrap(), ctx, env);
 
-            terms.alloc(TermData::Assert(cond, body))
+            ctx.mk_term(TermData::Assert(cond, body))
         }
-        ParsedType::Ident(ident) => env.get(ident.as_str()).unwrap(),
+        ParsedType::Ident(ident) => *env.get(ident.as_str()).unwrap(),
         ParsedType::IfElse(ifelse) => {
-            let c = from_rnix(ifelse.condition().unwrap(), terms, env);
-            let t = from_rnix(ifelse.body().unwrap(), terms, env);
-            let e = from_rnix(ifelse.else_body().unwrap(), terms, env);
+            let c = from_rnix(ifelse.condition().unwrap(), ctx, env);
+            let t = from_rnix(ifelse.body().unwrap(), ctx, env);
+            let e = from_rnix(ifelse.else_body().unwrap(), ctx, env);
 
-            terms.alloc(TermData::If(c, t, e))
+            ctx.mk_term(TermData::If(c, t, e))
         }
         ParsedType::Select(select) => {
-            let t = from_rnix(select.set().unwrap(), terms, env);
+            let t = from_rnix(select.set().unwrap(), ctx, env);
             // TODO: non-ident selections
             let f = Ident::cast(select.index().unwrap()).unwrap();
 
-            terms.alloc(TermData::Select(t, f.as_str().into()))
+            ctx.mk_term(TermData::Select(t, f.as_str().into()))
         }
         ParsedType::Lambda(lambda) => {
             let arg = lambda.arg().unwrap();
@@ -313,10 +311,10 @@ pub fn from_rnix<'a>(
                     let arg_id = Id::new();
 
                     let mut env = env.clone();
-                    env.insert(arg.as_str().into(), terms.alloc(TermData::Var(arg_id)));
+                    env.insert(arg.as_str().into(), ctx.mk_term(TermData::Var(arg_id)));
 
-                    let t = from_rnix(body, terms, &env);
-                    terms.alloc(TermData::Lam(arg_id, t))
+                    let t = from_rnix(body, ctx, &env);
+                    ctx.mk_term(TermData::Lam(arg_id, t))
                 }
                 NODE_PATTERN => {
                     // Given `args @ { v1 ? t1, ... }: t`, we desugar it to
@@ -332,7 +330,7 @@ pub fn from_rnix<'a>(
                     let pattern = Pattern::cast(arg).unwrap();
 
                     let args_id = Id::new();
-                    let args_term = &*terms.alloc(TermData::Var(args_id));
+                    let args_term = ctx.mk_term(TermData::Var(args_id));
                     let vn_ids: BTreeMap<String, Id> = pattern
                         .entries()
                         .map(|pat| {
@@ -348,27 +346,27 @@ pub fn from_rnix<'a>(
                         env.insert(at.as_str().into(), args_term);
                     }
                     for (name, id) in vn_ids.iter() {
-                        env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
+                        env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
                     }
 
                     let mut descriptor = KeyValueDescriptor::default();
                     for pat in pattern.entries() {
                         let name = String::from(pat.name().unwrap().as_str());
-                        let select_term = terms.alloc(TermData::Select(args_term, name.clone()));
+                        let select_term = ctx.mk_term(TermData::Select(args_term, name.clone()));
 
                         let t = match pat.default() {
                             Some(t) => {
-                                terms.alloc(TermData::Or(select_term, from_rnix(t, terms, &env)))
+                                ctx.mk_term(TermData::Or(select_term, from_rnix(t, ctx, &env)))
                             }
                             None => select_term,
                         };
                         descriptor.push(std::iter::once(name), t);
                     }
-                    let t = from_rnix(body, terms, &env);
+                    let t = from_rnix(body, ctx, &env);
 
-                    terms.alloc(TermData::Lam(
+                    ctx.mk_term(TermData::Lam(
                         args_id,
-                        terms.alloc(TermData::Let(vn_ids, descriptor, t)),
+                        ctx.mk_term(TermData::Let(vn_ids, descriptor, t)),
                     ))
                 }
                 _ => unreachable!(),
@@ -392,7 +390,7 @@ pub fn from_rnix<'a>(
             let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, Id::new())).collect();
 
             for (name, id) in ids.iter() {
-                env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
+                env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
             }
 
             let mut descriptor = KeyValueDescriptor::default();
@@ -400,7 +398,7 @@ pub fn from_rnix<'a>(
                 let key = kv.key().unwrap();
                 let value = kv.value().unwrap();
 
-                let t = from_rnix(value, terms, &env);
+                let t = from_rnix(value, ctx, &env);
                 descriptor.push(
                     key.path().map(|x| {
                         // CR pandaman: consider dynamic attributes in non-first elements
@@ -409,27 +407,24 @@ pub fn from_rnix<'a>(
                     t,
                 );
             }
-            let t = from_rnix(letin.body().unwrap(), terms, &env);
+            let t = from_rnix(letin.body().unwrap(), ctx, &env);
 
-            terms.alloc(TermData::Let(ids, descriptor, t))
+            ctx.mk_term(TermData::Let(ids, descriptor, t))
         }
         ParsedType::List(list) => {
             // CR pandaman: support polymorphic lists
-            let items = list
-                .items()
-                .map(|item| from_rnix(item, terms, env))
-                .collect();
+            let items = list.items().map(|item| from_rnix(item, ctx, env)).collect();
 
-            terms.alloc(TermData::List(items))
+            ctx.mk_term(TermData::List(items))
         }
         ParsedType::OrDefault(ordefault) => {
-            let t1 = from_rnix(ordefault.index().unwrap().node().clone(), terms, env);
-            let t2 = from_rnix(ordefault.default().unwrap(), terms, env);
+            let t1 = from_rnix(ordefault.index().unwrap().node().clone(), ctx, env);
+            let t2 = from_rnix(ordefault.default().unwrap(), ctx, env);
 
-            terms.alloc(TermData::Or(t1, t2))
+            ctx.mk_term(TermData::Or(t1, t2))
         }
-        ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), terms, env),
-        ParsedType::Root(root) => from_rnix(root.inner().unwrap(), terms, env),
+        ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), ctx, env),
+        ParsedType::Root(root) => from_rnix(root.inner().unwrap(), ctx, env),
         ParsedType::AttrSet(attrs) => {
             if attrs.recursive() {
                 // given `rec { x = y; y = ...; }`, we desugar it to
@@ -456,7 +451,7 @@ pub fn from_rnix<'a>(
                 let ids: BTreeMap<_, _> = names.into_iter().map(|name| (name, Id::new())).collect();
 
                 for (name, id) in ids.iter() {
-                    env.insert(name.clone(), terms.alloc(TermData::Var(*id)));
+                    env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
                 }
 
                 let mut let_descriptor = KeyValueDescriptor::default();
@@ -464,7 +459,7 @@ pub fn from_rnix<'a>(
                     let key = kv.key().unwrap();
                     let value = kv.value().unwrap();
 
-                    let t = from_rnix(value, terms, &env);
+                    let t = from_rnix(value, ctx, &env);
                     let_descriptor.push(
                         key.path().map(|x| {
                             // CR pandaman: consider dynamic attributes
@@ -478,14 +473,14 @@ pub fn from_rnix<'a>(
                 for (name, id) in ids.iter() {
                     attr_set_descriptor.push(
                         std::iter::once(name.into()),
-                        terms.alloc(TermData::Var(*id)),
+                        ctx.mk_term(TermData::Var(*id)),
                     );
                 }
 
-                terms.alloc(TermData::Let(
+                ctx.mk_term(TermData::Let(
                     ids,
                     let_descriptor,
-                    terms.alloc(TermData::AttrSet(attr_set_descriptor)),
+                    ctx.mk_term(TermData::AttrSet(attr_set_descriptor)),
                 ))
             } else {
                 let mut descriptor = KeyValueDescriptor::default();
@@ -493,14 +488,14 @@ pub fn from_rnix<'a>(
                     let key = attr.key().unwrap();
                     let value = attr.value().unwrap();
 
-                    let t = from_rnix(value, terms, env);
+                    let t = from_rnix(value, ctx, env);
                     descriptor.push(
                         key.path().map(|x| Ident::cast(x).unwrap().as_str().into()),
                         t,
                     );
                 }
 
-                terms.alloc(TermData::AttrSet(descriptor))
+                ctx.mk_term(TermData::AttrSet(descriptor))
             }
         }
         ParsedType::UnaryOp(op) => {
@@ -508,17 +503,17 @@ pub fn from_rnix<'a>(
                 UnaryOpKind::Invert => self::UnaryOpKind::BooleanNeg,
                 UnaryOpKind::Negate => self::UnaryOpKind::IntegerNeg,
             };
-            let value = from_rnix(op.value().unwrap(), terms, env);
+            let value = from_rnix(op.value().unwrap(), ctx, env);
 
-            terms.alloc(TermData::UnaryOp(kind, value))
+            ctx.mk_term(TermData::UnaryOp(kind, value))
         }
         ParsedType::BinOp(op) => {
             let kind = match op.operator() {
                 BinOpKind::Concat => self::BinOpKind::Concat,
                 BinOpKind::IsSet => {
-                    let t = from_rnix(op.lhs().unwrap(), terms, env);
+                    let t = from_rnix(op.lhs().unwrap(), ctx, env);
 
-                    return terms.alloc(TermData::HasAttr(t));
+                    return ctx.mk_term(TermData::HasAttr(t));
                 }
                 BinOpKind::Update => self::BinOpKind::Update,
                 BinOpKind::Add => self::BinOpKind::Add,
@@ -536,20 +531,20 @@ pub fn from_rnix<'a>(
                 BinOpKind::Or => self::BinOpKind::Or,
             };
 
-            let t1 = from_rnix(op.lhs().unwrap(), terms, env);
-            let t2 = from_rnix(op.rhs().unwrap(), terms, env);
+            let t1 = from_rnix(op.lhs().unwrap(), ctx, env);
+            let t2 = from_rnix(op.rhs().unwrap(), ctx, env);
 
-            terms.alloc(TermData::BinOp(kind, t1, t2))
+            ctx.mk_term(TermData::BinOp(kind, t1, t2))
         }
-        ParsedType::Str(_) => terms.alloc(TermData::String),
+        ParsedType::Str(_) => ctx.mk_term(TermData::String),
         ParsedType::Value(value) => {
             use rnix::value::Value;
 
             match value.to_value().unwrap() {
                 Value::Float(_) => todo!(),
-                Value::Integer(_) => terms.alloc(TermData::Integer),
-                Value::String(_) => terms.alloc(TermData::String),
-                Value::Path(_, _) => terms.alloc(TermData::Path),
+                Value::Integer(_) => ctx.mk_term(TermData::Integer),
+                Value::String(_) => ctx.mk_term(TermData::String),
+                Value::Path(_, _) => ctx.mk_term(TermData::Path),
             }
         }
         ParsedType::With(_) => todo!(),

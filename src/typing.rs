@@ -5,6 +5,7 @@ use crate::{
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
+    ops::Deref,
     sync::atomic::{self, AtomicUsize},
 };
 
@@ -679,7 +680,7 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
 pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constraint) {
     use hir::TermData::*;
 
-    match term {
+    match term.deref() {
         True => (Type::tt(), Constraint::top()),
         False => (Type::ff(), Constraint::top()),
         Integer => (Type::integer(), Constraint::top()),
