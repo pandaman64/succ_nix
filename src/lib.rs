@@ -6,51 +6,54 @@ pub mod hir;
 mod typing;
 
 pub use typing::{success_type, Environment, Solution, Type};
+use context::Context;
+use typing::TypeErrorSink;
+
+pub fn run<'a>(input: &str) -> (Type, Solution, TypeErrorSink) {
+    let ctx = Context::new();
+    let (alpha_env, mut ty_env) = builtins::env(&ctx);
+
+    let ast = rnix::parse(input).node();
+    eprintln!("ast = {:#?}", ast);
+    let hir = hir::from_rnix(ast, &ctx, &alpha_env);
+    eprintln!("hir = {}", hir);
+
+    let (t, c) = success_type(&mut ty_env, &hir);
+    eprintln!("type = {}\nconstraint = {}", t, c);
+    eprintln!("env:");
+    for (v, t) in alpha_env.iter() {
+        eprintln!("{} --> {}", v, t);
+    }
+    for (v, t) in ty_env.iter() {
+        eprintln!("{} --> {}", v, t);
+    }
+    let mut sol = Solution::default();
+    let mut sink = TypeErrorSink::default();
+    sol.refine(&c, &mut sink);
+    eprintln!("sol:");
+    for (v, t) in sol.map.iter() {
+        eprintln!("{} --> {}", v, t);
+    }
+
+    (t, sol, sink)
+}
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{context::Context, domain::AttrSetType, typing::TypeErrorSink};
     use std::collections::BTreeMap;
-
-    fn run<'a>(input: &str) -> (Type, TypeErrorSink) {
-        let ctx = Context::new();
-        let (alpha_env, mut ty_env) = builtins::env(&ctx);
-
-        let ast = rnix::parse(input).node();
-        eprintln!("ast = {:#?}", ast);
-        let hir = hir::from_rnix(ast, &ctx, &alpha_env);
-        eprintln!("hir = {}", hir);
-
-        let (t, c) = success_type(&mut ty_env, &hir);
-        eprintln!("type = {}\nconstraint = {}", t, c);
-        eprintln!("env:");
-        for (v, t) in alpha_env.iter() {
-            eprintln!("{} --> {}", v, t);
-        }
-        for (v, t) in ty_env.iter() {
-            eprintln!("{} --> {}", v, t);
-        }
-        let mut sol = Solution::default();
-        let mut sink = TypeErrorSink::default();
-        sol.refine(&c, &mut sink);
-        eprintln!("sol:");
-        for (v, t) in sol.map.iter() {
-            eprintln!("{} --> {}", v, t);
-        }
-
-        (sol.map_ty(&t), sink)
-    }
+    use domain::AttrSetType;
 
     fn success(input: &str, expected: Type) {
-        let (actual, sink) = run(input);
+        let (ty, sol, sink) = run(input);
+        let actual = sol.map_ty(&ty);
 
         assert!(!sink.is_error());
         assert_eq!(actual, expected, "\n{} ≠ {}", actual, expected);
     }
 
     fn fail(input: &str) {
-        let (_acutual, sink) = run(input);
+        let (_ty, _sol, sink) = run(input);
 
         assert!(sink.is_error());
     }
