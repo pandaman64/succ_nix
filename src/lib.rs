@@ -274,4 +274,11 @@ mod test {
             Type::string().sup(&Type::integer()),
         );
     }
+
+    #[test]
+    fn test_dynamic_attr() {
+        // Currently, we do not constrain the result type enough,
+        // so we get a looser success type.
+        success("{ a = 100; }.${''x''}", Type::any());
+    }
 }

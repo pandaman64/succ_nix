@@ -749,16 +749,38 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
 
     match attrs {
         Leaf(t) => success_type(env, t),
-        Internal(attrs) => {
-            let (tys, cs): (Vec<Type>, Vec<Constraint>) = attrs
-                .iter()
-                .map(|(_, attrs)| type_descriptor(env, attrs))
-                .unzip();
+        Internal(descriptors) => {
+            let mut attrs = BTreeMap::new();
+            let mut rest = Type::none();
+            let mut constraints = vec![];
+
+            for (name, child) in descriptors.iter() {
+                use hir::AttrPath::*;
+
+                let (desc_ty, desc_c) = type_descriptor(env, child);
+                constraints.push(desc_c);
+
+                match name {
+                    Static(name) => {
+                        attrs.insert(name.clone(), desc_ty);
+                    },
+                    Dynamic(name) => {
+                        let (name_ty, name_c) = success_type(env, name);
+                        constraints.push(Constraint::subset(name_ty, Type::string()));
+                        constraints.push(name_c);
+
+                        // merge types of dynamic attributes
+                        rest = rest.sup(&desc_ty);
+                    },
+                }
+            }
+
             let result_ty = Type::attr_set(AttrSetType {
-                attrs: attrs.keys().cloned().zip(tys.iter().cloned()).collect(),
-                rest: Type::none().into(),
+                attrs,
+                rest: rest.into(),
             });
-            (result_ty, Constraint::conj(cs))
+
+            (result_ty, Constraint::conj(constraints))
         }
     }
 }
@@ -870,12 +892,18 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             }
 
             match descriptor {
-                KeyValueDescriptor::Internal(attrs) => {
-                    let (tys, cs): (Vec<(&str, Type)>, Vec<Constraint>) = attrs
+                KeyValueDescriptor::Internal(descriptors) => {
+                    let (tys, cs): (Vec<(&str, Type)>, Vec<Constraint>) = descriptors
                         .iter()
                         .map(|(name, child)| {
                             let (ty, c) = type_descriptor(env, child);
-                            ((name.as_str(), ty), c)
+
+                            // let cannot have descriptors that start with
+                            // dynamic attribute names.
+                            match name {
+                                hir::AttrPath::Static(name) => ((name.as_str(), ty), c),
+                                _ => unreachable!(),
+                            }
                         })
                         .unzip();
                     let (result_ty, result_c) = success_type(env, e);
@@ -989,39 +1017,60 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             (ret_ty, Constraint::conj(constraints))
         }
         Select(t, x) => {
+            use hir::AttrPath::*;
+
             let (t_ty, t_c) = success_type(env, t);
             let tx_ty = fresh_tvar();
-            let constraints = Constraint::conj(vec![
-                // When `t.x` evaluates to a value, `τ_t` must include the set
-                // `{ x = τ_x, ... = none }`.
-                Constraint::subset(
-                    Type::attr_set(AttrSetType {
-                        attrs: {
-                            let mut attrs = BTreeMap::new();
-                            attrs.insert(x.clone(), tx_ty.clone());
-                            attrs
-                        },
-                        rest: Type::none().into(),
-                    }),
-                    t_ty.clone(),
-                ),
-                // In order to `t.x` evaluates to a value, `t` must be in the set of
-                // all attribute set with `x` field, i.e. `{ x = τ_x, ... = any }`.
-                Constraint::subset(
-                    t_ty,
-                    Type::attr_set(AttrSetType {
-                        attrs: {
-                            let mut attrs = BTreeMap::new();
-                            attrs.insert(x.clone(), tx_ty.clone());
-                            attrs
-                        },
-                        rest: Type::any().into(),
-                    }),
-                ),
-                t_c,
-            ]);
 
-            (tx_ty, constraints)
+            let mut constraints = match x {
+                Static(name) => vec![
+                    // When `t.x` evaluates to a value, `τ_t` must include the set
+                    // `{ x = τ_x, ... = none }`.
+                    Constraint::subset(
+                        Type::attr_set(AttrSetType {
+                            attrs: {
+                                let mut attrs = BTreeMap::new();
+                                attrs.insert(name.clone(), tx_ty.clone());
+                                attrs
+                            },
+                            rest: Type::none().into(),
+                        }),
+                        t_ty.clone(),
+                    ),
+                    // In order to `t.x` evaluates to a value, `t` must be in the set of
+                    // all attribute set with `x` field, i.e. `{ x = τ_x, ... = any }`.
+                    Constraint::subset(
+                        t_ty,
+                        Type::attr_set(AttrSetType {
+                            attrs: {
+                                let mut attrs = BTreeMap::new();
+                                attrs.insert(name.clone(), tx_ty.clone());
+                                attrs
+                            },
+                            rest: Type::any().into(),
+                        }),
+                    ),
+                ],
+                Dynamic(name) => {
+                    // we have not discovered the constraint for the result type
+                    // ideally, we'd like to conclude that
+                    // type_of({ a = 100; }.${...}) ⊂ integer
+                    // for example.
+
+                    let (name_ty, name_c) = success_type(env, name);
+
+                    vec![
+                        // dynamic name evaluates to a string
+                        Constraint::subset(name_ty, Type::string()),
+                        name_c,
+                        // `t` must be an attribute set
+                        Constraint::subset(t_ty, Type::any_attr_set()),
+                    ]
+                },
+            };
+            constraints.push(t_c);
+
+            (tx_ty, Constraint::conj(constraints))
         }
         Or(t1, t2) => {
             // precisely, `or` operator introduces an implication, like
