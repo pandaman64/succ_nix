@@ -15,7 +15,7 @@ pub fn run(input: &str) -> (Type, Solution, TypeErrorSink) {
 
     let ast = rnix::parse(input).node();
     eprintln!("ast = {:#?}", ast);
-    let hir = hir::from_rnix(ast, &ctx, &alpha_env);
+    let hir = hir::from_rnix(ast, &ctx, &alpha_env, &[]);
     eprintln!("hir = {}", hir);
 
     let (t, c) = success_type(&mut ty_env, &hir);
@@ -244,6 +244,34 @@ mod test {
         success(
             "x: assert !x; x",
             Type::fun(Type::boolean(), Type::boolean()),
+        );
+    }
+
+    #[test]
+    fn test_with() {
+        success(
+            "with { a = 100; b.c = 200; }; b",
+            Type::attr_set(AttrSetType {
+                attrs: {
+                    let mut attrs = BTreeMap::new();
+                    attrs.insert("c".into(), Type::integer());
+                    attrs
+                },
+                rest: Type::none().into(),
+            }),
+        );
+
+        success(
+            "let a = ''foo''; b = { a = 100; }; in with b; a",
+            Type::string(),
+        );
+
+        // If you run this program, you'll get "foo" because `with` resolves from the nearest.
+        // However, as our desugaring nondeterministically choose the namespace from which we
+        // select, we get a union type.
+        success(
+            "with { a = 100; }; with { a = ''foo''; }; a",
+            Type::string().sup(&Type::integer()),
         );
     }
 }

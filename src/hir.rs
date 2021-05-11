@@ -275,7 +275,12 @@ fn static_path(ast: rnix::SyntaxNode) -> String {
     }
 }
 
-pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv<'a>) -> Term<'a> {
+pub fn from_rnix<'a>(
+    ast: rnix::SyntaxNode,
+    ctx: &'a Context<'a>,
+    env: &AlphaEnv<'a>,
+    with_stack: &[Term<'a>],
+) -> Term<'a> {
     use rnix::types::*;
     use rnix::SyntaxKind::*;
 
@@ -284,29 +289,34 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
         _ => unreachable!(),
     } {
         ParsedType::Apply(apply) => {
-            let t1 = from_rnix(apply.lambda().unwrap(), ctx, env);
-            let t2 = from_rnix(apply.value().unwrap(), ctx, env);
+            let t1 = from_rnix(apply.lambda().unwrap(), ctx, env, with_stack);
+            let t2 = from_rnix(apply.value().unwrap(), ctx, env, with_stack);
 
             ctx.mk_term(TermData::App(t1, t2))
         }
         ParsedType::Assert(assert) => {
-            let cond = from_rnix(assert.condition().unwrap(), ctx, env);
-            let body = from_rnix(assert.body().unwrap(), ctx, env);
+            let cond = from_rnix(assert.condition().unwrap(), ctx, env, with_stack);
+            let body = from_rnix(assert.body().unwrap(), ctx, env, with_stack);
 
             ctx.mk_term(TermData::Assert(cond, body))
         }
-        ParsedType::Ident(ident) => *env
-            .get(ident.as_str())
-            .unwrap_or_else(|| panic!("{} not found", ident.as_str())),
+        ParsedType::Ident(ident) => match env.get(ident.as_str()) {
+            Some(t) => *t,
+            None => with_stack
+                .iter()
+                .map(|t| ctx.mk_term(TermData::Select(*t, ident.as_str().into())))
+                .reduce(|t1, t2| ctx.mk_term(TermData::Or(t1, t2)))
+                .unwrap_or_else(|| panic!("{} not found", ident.as_str())),
+        },
         ParsedType::IfElse(ifelse) => {
-            let c = from_rnix(ifelse.condition().unwrap(), ctx, env);
-            let t = from_rnix(ifelse.body().unwrap(), ctx, env);
-            let e = from_rnix(ifelse.else_body().unwrap(), ctx, env);
+            let c = from_rnix(ifelse.condition().unwrap(), ctx, env, with_stack);
+            let t = from_rnix(ifelse.body().unwrap(), ctx, env, with_stack);
+            let e = from_rnix(ifelse.else_body().unwrap(), ctx, env, with_stack);
 
             ctx.mk_term(TermData::If(c, t, e))
         }
         ParsedType::Select(select) => {
-            let t = from_rnix(select.set().unwrap(), ctx, env);
+            let t = from_rnix(select.set().unwrap(), ctx, env, with_stack);
             // TODO: dynamic selections
             let f = static_path(select.index().unwrap());
 
@@ -324,7 +334,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     let mut env = env.clone();
                     env.insert(arg.as_str().into(), ctx.mk_term(TermData::Var(arg_id)));
 
-                    let t = from_rnix(body, ctx, &env);
+                    let t = from_rnix(body, ctx, &env, with_stack);
                     ctx.mk_term(TermData::Lam(arg_id, t))
                 }
                 NODE_PATTERN => {
@@ -366,14 +376,15 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                         let select_term = ctx.mk_term(TermData::Select(args_term, name.clone()));
 
                         let t = match pat.default() {
-                            Some(t) => {
-                                ctx.mk_term(TermData::Or(select_term, from_rnix(t, ctx, &env)))
-                            }
+                            Some(t) => ctx.mk_term(TermData::Or(
+                                select_term,
+                                from_rnix(t, ctx, &env, with_stack),
+                            )),
                             None => select_term,
                         };
                         descriptor.push(std::iter::once(name), t);
                     }
-                    let t = from_rnix(body, ctx, &env);
+                    let t = from_rnix(body, ctx, &env, with_stack);
 
                     ctx.mk_term(TermData::Lam(
                         args_id,
@@ -416,7 +427,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                 let key = kv.key().unwrap();
                 let value = kv.value().unwrap();
 
-                let t = from_rnix(value, ctx, &env);
+                let t = from_rnix(value, ctx, &env, with_stack);
                 descriptor.push(
                     key.path().map(|x| {
                         // CR pandaman: consider dynamic attributes in non-first elements
@@ -428,7 +439,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
             for inherit in letin.inherits() {
                 match inherit.from() {
                     Some(from) => {
-                        let from = from_rnix(from.inner().unwrap(), ctx, &env);
+                        let from = from_rnix(from.inner().unwrap(), ctx, &env, with_stack);
 
                         for ident in inherit.idents() {
                             descriptor.push(
@@ -448,24 +459,32 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     }
                 }
             }
-            let t = from_rnix(letin.body().unwrap(), ctx, &env);
+            let t = from_rnix(letin.body().unwrap(), ctx, &env, with_stack);
 
             ctx.mk_term(TermData::Let(ids, descriptor, t))
         }
         ParsedType::List(list) => {
             // CR pandaman: support polymorphic lists
-            let items = list.items().map(|item| from_rnix(item, ctx, env)).collect();
+            let items = list
+                .items()
+                .map(|item| from_rnix(item, ctx, env, with_stack))
+                .collect();
 
             ctx.mk_term(TermData::List(items))
         }
         ParsedType::OrDefault(ordefault) => {
-            let t1 = from_rnix(ordefault.index().unwrap().node().clone(), ctx, env);
-            let t2 = from_rnix(ordefault.default().unwrap(), ctx, env);
+            let t1 = from_rnix(
+                ordefault.index().unwrap().node().clone(),
+                ctx,
+                env,
+                with_stack,
+            );
+            let t2 = from_rnix(ordefault.default().unwrap(), ctx, env, with_stack);
 
             ctx.mk_term(TermData::Or(t1, t2))
         }
-        ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), ctx, env),
-        ParsedType::Root(root) => from_rnix(root.inner().unwrap(), ctx, env),
+        ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), ctx, env, with_stack),
+        ParsedType::Root(root) => from_rnix(root.inner().unwrap(), ctx, env, with_stack),
         ParsedType::AttrSet(attrs) => {
             if attrs.recursive() {
                 // given `rec { x = y; y = ...; inherit (t) bar; }`, we desugar it to
@@ -508,7 +527,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     let key = kv.key().unwrap();
                     let value = kv.value().unwrap();
 
-                    let t = from_rnix(value, ctx, &env);
+                    let t = from_rnix(value, ctx, &env, with_stack);
                     let_descriptor.push(
                         key.path().map(|x| {
                             // CR pandaman: consider dynamic attributes
@@ -520,7 +539,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                 for inherit in attrs.inherits() {
                     match inherit.from() {
                         Some(from) => {
-                            let from = from_rnix(from.inner().unwrap(), ctx, &env);
+                            let from = from_rnix(from.inner().unwrap(), ctx, &env, with_stack);
 
                             for ident in inherit.idents() {
                                 let_descriptor.push(
@@ -560,13 +579,13 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                     let key = attr.key().unwrap();
                     let value = attr.value().unwrap();
 
-                    let t = from_rnix(value, ctx, env);
+                    let t = from_rnix(value, ctx, env, with_stack);
                     descriptor.push(key.path().map(static_path), t);
                 }
                 for inherit in attrs.inherits() {
                     match inherit.from() {
                         Some(from) => {
-                            let from = from_rnix(from.inner().unwrap(), ctx, &env);
+                            let from = from_rnix(from.inner().unwrap(), ctx, &env, with_stack);
 
                             for ident in inherit.idents() {
                                 descriptor.push(
@@ -595,7 +614,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                 UnaryOpKind::Invert => self::UnaryOpKind::BooleanNeg,
                 UnaryOpKind::Negate => self::UnaryOpKind::IntegerNeg,
             };
-            let value = from_rnix(op.value().unwrap(), ctx, env);
+            let value = from_rnix(op.value().unwrap(), ctx, env, with_stack);
 
             ctx.mk_term(TermData::UnaryOp(kind, value))
         }
@@ -603,7 +622,7 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
             let kind = match op.operator() {
                 BinOpKind::Concat => self::BinOpKind::Concat,
                 BinOpKind::IsSet => {
-                    let t = from_rnix(op.lhs().unwrap(), ctx, env);
+                    let t = from_rnix(op.lhs().unwrap(), ctx, env, with_stack);
 
                     return ctx.mk_term(TermData::HasAttr(t));
                 }
@@ -623,8 +642,8 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                 BinOpKind::Or => self::BinOpKind::Or,
             };
 
-            let t1 = from_rnix(op.lhs().unwrap(), ctx, env);
-            let t2 = from_rnix(op.rhs().unwrap(), ctx, env);
+            let t1 = from_rnix(op.lhs().unwrap(), ctx, env, with_stack);
+            let t2 = from_rnix(op.rhs().unwrap(), ctx, env, with_stack);
 
             ctx.mk_term(TermData::BinOp(kind, t1, t2))
         }
@@ -639,7 +658,13 @@ pub fn from_rnix<'a>(ast: rnix::SyntaxNode, ctx: &'a Context<'a>, env: &AlphaEnv
                 Value::Path(_, _) => ctx.mk_term(TermData::Path),
             }
         }
-        ParsedType::With(_) => todo!(),
+        ParsedType::With(with) => {
+            let namespace = from_rnix(with.namespace().unwrap(), ctx, env, with_stack);
+            let mut with_stack = with_stack.to_vec();
+            with_stack.push(namespace);
+
+            from_rnix(with.body().unwrap(), ctx, env, &with_stack)
+        }
         ParsedType::Error(_) => todo!(),
         ParsedType::Key(_) => unreachable!(),
         ParsedType::Dynamic(_) => unreachable!(),
