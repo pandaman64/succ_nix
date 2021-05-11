@@ -29,7 +29,7 @@ pub fn run(input: &str) -> (Type, Solution, TypeErrorSink) {
     }
     let mut sol = Solution::default();
     let mut sink = TypeErrorSink::default();
-    sol.refine(&c, &mut sink);
+    sol.refine(&c, &mut sink, &mut 10000);
     eprintln!("sol:");
     for (v, t) in sol.map.iter() {
         eprintln!("{} --> {}", v, t);
@@ -111,16 +111,20 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_let_infinite_types() {
         // CR pandaman: 再帰型が体系に必要だと思います。
-        // infinite loop. something is wrong
-        success("let x = x x; in x", Type::any());
+        // These tests fails because the current implementation cannot properly
+        // infer recursive types and thus loop infinitely until the hard limit.
+
+        // success("let x = x x; in x", Type::any());
+        fail("let x = x x; in x");
+
         // from TAPL
-        success(
-            "let hungry = x: hungry; in hungry",
-            Type::fun(Type::any(), Type::any()),
-        );
+        // success(
+        //     "let hungry = x: hungry; in hungry",
+        //     Type::fun(Type::any(), Type::any()),
+        // );
+        fail("let hungry = x: hungry; in hungry");
     }
 
     #[test]

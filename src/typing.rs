@@ -551,7 +551,7 @@ impl Type {
     fn is_subtype(&self, other: &Type) -> bool {
         // CR pandaman: 同じ型でも表現が違うケースいっぱいあるが
         // e.g. { a = ∅, ... = ∅; } = { ... = ∅; }. (これ本当に同じ型？)
-        eprintln!("subtype? {} ⊆ {}, {}", self, other, self.inf(other));
+        tracing::trace!("subtype? {} ⊆ {}, {}", self, other, self.inf(other));
         &self.inf(other) == self
     }
 
@@ -1163,12 +1163,12 @@ impl Solution {
     // extract syntactic matching between t1 (non-substituted) and inf (substituted),
     // and update the solution
     fn update(&mut self, t1: &Type, inf: &Type) {
-        eprintln!("update check: {} ⊆ {}", t1, inf);
+        tracing::trace!("update check: {} ⊆ {}", t1, inf);
 
         if let Some(vars) = t1.as_vars() {
             // A ∪ B ⊂ X --> A ⊂ X ∧ B ⊂ X
             for v in vars.vars.iter() {
-                eprintln!("update {} --> {}", v, inf);
+                tracing::trace!("update {} --> {}", v, inf);
                 self.map.insert(v.clone(), inf.clone());
             }
         }
@@ -1195,7 +1195,7 @@ impl Solution {
     }
 
     fn refine_subset(&mut self, t1: &Type, t2: &Type, sink: &mut TypeErrorSink) {
-        eprintln!("refine subset: {} ⊆ {}", t1, t2);
+        tracing::trace!("refine subset: {} ⊆ {}", t1, t2);
 
         let cur1 = self.map_ty(t1);
         let cur2 = self.map_ty(t2);
@@ -1207,71 +1207,78 @@ impl Solution {
             // type clash, or the constraint cannot be met
             if inf.is_bottom() {
                 // TODO: more useful error reporting e.g. file names and lines
-                eprintln!("type clash between {} and {}", cur1, cur2);
+                tracing::error!("type clash between {} and {}", cur1, cur2);
                 sink.is_error = true;
             }
             self.update(t1, &inf);
         }
     }
 
-    pub fn refine(&mut self, c: &Constraint, sink: &mut TypeErrorSink) {
-        eprintln!("refine: {}", c);
-        use Constraint::*;
+    pub fn refine(&mut self, c: &Constraint, sink: &mut TypeErrorSink, limit: &mut usize) {
+        while *limit > 0 {
+            *limit = limit.saturating_sub(1);
 
-        let old = self.clone();
-        match c {
-            Equal(t1, t2) => {
-                self.refine_subset(t1, t2, sink);
-                self.refine_subset(t2, t1, sink);
-            }
-            Subset(t1, t2) => self.refine_subset(t1, t2, sink),
-            Conj(cs) => cs.iter().for_each(|c| self.refine(c, sink)),
-            Disj(cs) => {
-                // prevent interleaving mutable access to self
-                let sols: Vec<_> = cs
-                    .iter()
-                    .filter_map(|c| {
-                        let mut sol = self.clone();
-                        let mut sink = TypeErrorSink::default();
-                        sol.refine(c, &mut sink);
-                        if sink.is_error() {
-                            None
-                        } else {
-                            Some(sol)
-                        }
-                    })
-                    .collect();
+            tracing::trace!("refine: {}", c);
+            use Constraint::*;
 
-                let mut ok = false;
-
-                for sol in sols.iter() {
-                    // at least one branch must have a satisfying solution
-                    ok = true;
-
-                    for (v, t) in sol.map.iter() {
-                        use std::collections::hash_map::Entry;
-
-                        match self.map.entry(v.clone()) {
-                            Entry::Vacant(v) => {
-                                v.insert(t.clone());
+            let old = self.clone();
+            match c {
+                Equal(t1, t2) => {
+                    self.refine_subset(t1, t2, sink);
+                    self.refine_subset(t2, t1, sink);
+                }
+                Subset(t1, t2) => self.refine_subset(t1, t2, sink),
+                Conj(cs) => cs.iter().for_each(|c| self.refine(c, sink, limit)),
+                Disj(cs) => {
+                    // prevent interleaving mutable access to self
+                    let sols: Vec<_> = cs
+                        .iter()
+                        .filter_map(|c| {
+                            let mut sol = self.clone();
+                            let mut sink = TypeErrorSink::default();
+                            sol.refine(c, &mut sink, limit);
+                            if sink.is_error() {
+                                None
+                            } else {
+                                Some(sol)
                             }
-                            Entry::Occupied(mut o) => {
-                                // widen the assigned type
-                                let t = o.get().sup(t);
-                                o.insert(t);
+                        })
+                        .collect();
+
+                    let mut ok = false;
+
+                    for sol in sols.iter() {
+                        // at least one branch must have a satisfying solution
+                        ok = true;
+
+                        for (v, t) in sol.map.iter() {
+                            use std::collections::hash_map::Entry;
+
+                            match self.map.entry(v.clone()) {
+                                Entry::Vacant(v) => {
+                                    v.insert(t.clone());
+                                }
+                                Entry::Occupied(mut o) => {
+                                    // widen the assigned type
+                                    let t = o.get().sup(t);
+                                    o.insert(t);
+                                }
                             }
                         }
                     }
-                }
 
-                if !ok {
-                    sink.is_error = true;
+                    if !ok {
+                        sink.is_error = true;
+                    }
                 }
+            };
+
+            if self == &old {
+                return;
             }
-        };
-
-        if self != &old {
-            self.refine(c, sink)
         }
+
+        // failed to find a solution within a determined limit
+        sink.is_error = true;
     }
 }
