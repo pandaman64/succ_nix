@@ -13,3 +13,7 @@ tracing = "0.1.26"
 
 [dev-dependencies]
 insta = { version = "1.7.1", features = ["glob"] }
+
+[profile.release]
+# debug info
+debug = true
