@@ -1095,17 +1095,21 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
         Or(t1, t2) => {
             // precisely, `or` operator introduces an implication, like
             // if `x.e` exists, `x.e or t ⊆ type(x.e)`, and otherwise, `x.e or t ⊆ type(t)`.
-            // here, we just over-approximate these sets via `type(x.e) ∪ type(t)`.
             let (t1_ty, t1_c) = success_type(env, t1);
             let (t2_ty, t2_c) = success_type(env, t2);
             let ret_ty = fresh_tvar();
 
             (
                 ret_ty.clone(),
-                Constraint::conj(vec![
-                    Constraint::subset(ret_ty, t1_ty.sup(&t2_ty)),
-                    t1_c,
-                    t2_c,
+                Constraint::disj(vec![
+                    Constraint::conj(vec![
+                        Constraint::subset(ret_ty.clone(), t1_ty),
+                        t1_c,
+                    ]),
+                    Constraint::conj(vec![
+                        Constraint::subset(ret_ty, t2_ty),
+                        t2_c,
+                    ])
                 ]),
             )
         }

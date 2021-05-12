@@ -29,7 +29,7 @@ pub fn run(input: &str, limit: usize) -> (Type, Solution, TypeErrorSink) {
     }
     let mut sink = TypeErrorSink::default();
     let sol = Solution::solve(&c, &mut sink, limit);
-    eprintln!("sol:");
+    eprintln!("sol:{}", !sink.is_error());
     for (v, t) in sol.map.iter() {
         eprintln!("{} --> {}", v, t);
     }
