@@ -9,7 +9,7 @@ pub struct FunType {
 
 impl fmt::Display for FunType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} -> {}", self.arg, self.ret)
+        write!(f, "({} -> {})", self.arg, self.ret)
     }
 }
 

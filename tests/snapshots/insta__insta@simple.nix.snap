@@ -4,4 +4,4 @@ expression: sol.map_ty(&ty).to_string()
 input_file: tests/corpus/simple.nix
 
 ---
-{ bar = integer -> integer; foo = integer; ... = ∅; }
+{ bar = (integer -> integer); foo = integer; ... = ∅; }

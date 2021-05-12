@@ -322,11 +322,11 @@ rec {
      function of the { a, b ? foo, ... }: format, but some facilities
      like callPackage expect to be able to query expected arguments.
   */
-  setFunctionArgs = f: args:
-    { # TODO: Should we add call-time "type" checking like built in?
-      __functor = self: f;
-      __functionArgs = args;
-    };
+  # setFunctionArgs = f: args:
+  #   { # TODO: Should we add call-time "type" checking like built in?
+  #     __functor = self: f;
+  #     __functionArgs = args;
+  #   };
 
   /* Extract the expected function arguments from a function.
      This works both with nix-native { a, b ? foo, ... }: style
@@ -334,7 +334,7 @@ rec {
      has the same return type and semantics as builtins.functionArgs.
      setFunctionArgs : (a → b) → Map String Bool.
   */
-  functionArgs = f: f.__functionArgs or (builtins.functionArgs f);
+  # functionArgs = f: f.__functionArgs or (builtins.functionArgs f);
 
   /* Check whether something is a function or something
      annotated with function args.

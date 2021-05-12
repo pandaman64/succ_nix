@@ -669,6 +669,26 @@ impl Type {
             }
         }
     }
+
+    fn ftv(&self) -> impl Iterator<Item = &String> {
+        match self {
+            Type::Any => vec![].into_iter(),
+            Type::Union {
+                vars, fun, attrs, ..
+            } => {
+                let mut vars: Vec<_> = vars.vars.iter().collect();
+                if let Some(fun) = fun.as_fun() {
+                    vars.extend(fun.arg.ftv());
+                    vars.extend(fun.ret.ftv());
+                }
+                if let Some(attrs) = attrs.as_attrs() {
+                    vars.extend(attrs.attrs.iter().flat_map(|(_, ty)| ty.ftv()));
+                    vars.extend(attrs.rest.ftv());
+                }
+                vars.into_iter()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -690,11 +710,11 @@ impl fmt::Display for Constraint {
             Conj(cs) => match cs.as_slice() {
                 [] => f.write_str("⊤"),
                 [head, tail @ ..] => {
-                    write!(f, "{}", head)?;
+                    write!(f, "({}", head)?;
                     for c in tail {
                         write!(f, " ∧ {}", c)?;
                     }
-                    Ok(())
+                    write!(f, ")")
                 }
             },
             Disj(cs) => match cs.as_slice() {
@@ -763,7 +783,7 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
                 match name {
                     Static(name) => {
                         attrs.insert(name.clone(), desc_ty);
-                    },
+                    }
                     Dynamic(name) => {
                         let (name_ty, name_c) = success_type(env, name);
                         constraints.push(Constraint::subset(name_ty, Type::string()));
@@ -771,7 +791,7 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
 
                         // merge types of dynamic attributes
                         rest = rest.sup(&desc_ty);
-                    },
+                    }
                 }
             }
 
@@ -1066,7 +1086,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                         // `t` must be an attribute set
                         Constraint::subset(t_ty, Type::any_attr_set()),
                     ]
-                },
+                }
             };
             constraints.push(t_c);
 
@@ -1116,7 +1136,7 @@ impl TypeErrorSink {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Solution {
     // tvar -> ty
     pub(crate) map: HashMap<String, Type>,
@@ -1134,6 +1154,7 @@ impl fmt::Display for Solution {
 
 impl Solution {
     fn map_tvar(&self, tvar: &str) -> Type {
+        // unconstrained types will be any
         self.map.get(tvar).cloned().unwrap_or_else(Type::any)
     }
 
@@ -1263,11 +1284,11 @@ impl Solution {
         }
     }
 
-    pub fn refine(&mut self, c: &Constraint, sink: &mut TypeErrorSink, limit: &mut usize) {
+    fn refine(&mut self, c: &Constraint, sink: &mut TypeErrorSink, limit: &mut usize) {
         while *limit > 0 {
             *limit = limit.saturating_sub(1);
 
-            tracing::trace!("refine: {}", c);
+            tracing::debug!("refine: {}", c);
             use Constraint::*;
 
             let old = self.clone();
@@ -1280,7 +1301,7 @@ impl Solution {
                 Conj(cs) => cs.iter().for_each(|c| self.refine(c, sink, limit)),
                 Disj(cs) => {
                     // prevent interleaving mutable access to self
-                    let sols: Vec<_> = cs
+                    let disj_sol = cs
                         .iter()
                         .filter_map(|c| {
                             let mut sol = self.clone();
@@ -1292,42 +1313,75 @@ impl Solution {
                                 Some(sol)
                             }
                         })
-                        .collect();
-
-                    let mut ok = false;
-
-                    for sol in sols.iter() {
-                        // at least one branch must have a satisfying solution
-                        ok = true;
-
-                        for (v, t) in sol.map.iter() {
-                            use std::collections::hash_map::Entry;
-
-                            match self.map.entry(v.clone()) {
-                                Entry::Vacant(v) => {
-                                    v.insert(t.clone());
-                                }
-                                Entry::Occupied(mut o) => {
-                                    // widen the assigned type
-                                    let t = o.get().sup(t);
-                                    o.insert(t);
-                                }
+                        .reduce(|mut s1, s2| {
+                            for (var, t2) in s2.map.into_iter() {
+                                let ty = s1.map.get(&var).unwrap().sup(&t2);
+                                s1.map.insert(var, ty);
                             }
-                        }
-                    }
+                            s1
+                        });
 
-                    if !ok {
-                        sink.is_error = true;
+                    match disj_sol {
+                        Some(disj_sol) => {
+                            *self = disj_sol;
+                        }
+                        None => {
+                            // at least one branch must have a satisfying solution
+                            sink.is_error = true;
+                        }
                     }
                 }
             };
 
             if self == &old {
                 return;
+            } else {
+                let diffs: Vec<_> = old
+                    .map
+                    .iter()
+                    .filter_map(|(v, old_ty)| {
+                        let new_ty = self.map.get(v).unwrap();
+                        if old_ty != new_ty {
+                            Some(format!("{}: {} ==> {}", v, old_ty, new_ty))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                tracing::debug!(?diffs);
             }
         }
 
         // failed to find a solution within a determined limit
         sink.is_error = true;
+    }
+
+    fn init_ftv(&mut self, c: &Constraint) {
+        use Constraint::*;
+
+        match c {
+            Equal(t1, t2) | Subset(t1, t2) => {
+                for tv in t1.ftv() {
+                    self.map.insert(tv.clone(), Type::any());
+                }
+                for tv in t2.ftv() {
+                    self.map.insert(tv.clone(), Type::any());
+                }
+            }
+            Conj(cs) | Disj(cs) => {
+                for c in cs.iter() {
+                    self.init_ftv(c);
+                }
+            }
+        }
+    }
+
+    pub fn solve(c: &Constraint, sink: &mut TypeErrorSink, mut limit: usize) -> Self {
+        let mut sol = Self {
+            map: Default::default(),
+        };
+        sol.init_ftv(c);
+        sol.refine(c, sink, &mut limit);
+        sol
     }
 }

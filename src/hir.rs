@@ -181,9 +181,11 @@ impl TermData<'_> {
                 f.write_str(")")
             }
             App(t1, t2) => {
+                f.write_str("(")?;
                 t1.fmt(f, level)?;
                 f.write_str(" ")?;
-                t2.fmt(f, level)
+                t2.fmt(f, level)?;
+                f.write_str(")")
             }
             Assert(t1, t2) => {
                 f.write_str("assert ")?;

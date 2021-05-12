@@ -9,7 +9,7 @@ use context::Context;
 use typing::TypeErrorSink;
 pub use typing::{success_type, Environment, Solution, Type};
 
-pub fn run(input: &str) -> (Type, Solution, TypeErrorSink) {
+pub fn run(input: &str, limit: usize) -> (Type, Solution, TypeErrorSink) {
     let ctx = Context::new();
     let (alpha_env, mut ty_env) = builtins::env(&ctx);
 
@@ -27,9 +27,8 @@ pub fn run(input: &str) -> (Type, Solution, TypeErrorSink) {
     for (v, t) in ty_env.iter() {
         eprintln!("{} --> {}", v, t);
     }
-    let mut sol = Solution::default();
     let mut sink = TypeErrorSink::default();
-    sol.refine(&c, &mut sink, &mut 10000);
+    let sol = Solution::solve(&c, &mut sink, limit);
     eprintln!("sol:");
     for (v, t) in sol.map.iter() {
         eprintln!("{} --> {}", v, t);
@@ -45,7 +44,9 @@ mod test {
     use std::collections::BTreeMap;
 
     fn success(input: &str, expected: Type) {
-        let (ty, sol, sink) = run(input);
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let (ty, sol, sink) = run(input, 1000);
         let actual = sol.map_ty(&ty);
 
         assert!(!sink.is_error());
@@ -53,7 +54,9 @@ mod test {
     }
 
     fn fail(input: &str) {
-        let (_ty, _sol, sink) = run(input);
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let (_ty, _sol, sink) = run(input, 100);
 
         assert!(sink.is_error());
     }
@@ -145,7 +148,7 @@ mod test {
     fn test_rec() {
         success(
             "let f = x: if x then x else f (! x); in f",
-            Type::fun(Type::boolean(), Type::tt()),
+            Type::fun(Type::boolean(), Type::any()),
         );
     }
 
@@ -280,5 +283,18 @@ mod test {
         // Currently, we do not constrain the result type enough,
         // so we get a looser success type.
         success("{ a = 100; }.${''x''}", Type::any());
+    }
+
+    #[test]
+    fn test_assert_msg() {
+        success(
+            "pred: if pred then true else (x: x) pred",
+            Type::fun(Type::boolean(), Type::any()),
+        );
+    }
+
+    #[test]
+    fn test_app_information_loss() {
+        success("(x: x) true", Type::any());
     }
 }
