@@ -1,7 +1,8 @@
 use crate::{
     context::Context,
     domain,
-    hir::{self, TermData},
+    hir::{self, TermKind},
+    span::Span,
     typing, Type,
 };
 
@@ -134,20 +135,20 @@ pub fn env<'a>(ctx: &'a Context<'a>) -> (hir::AlphaEnv<'a>, typing::Environment)
 
     (
         map![
-            "abort" => ctx.mk_term(TermData::Var(abort_id)),
-            "baseNameOf" => ctx.mk_term(TermData::Var(base_name_of_id)),
-            "derivation" => ctx.mk_term(TermData::Var(derivation_id)),
-            "dirOf" => ctx.mk_term(TermData::Var(dir_of_id)),
-            "false" => ctx.mk_term(TermData::Var(false_id)),
-            "import" => ctx.mk_term(TermData::Var(import_id)),
-            "isNull" => ctx.mk_term(TermData::Var(is_null_id)),
-            "map" => ctx.mk_term(TermData::Var(map_id)),
-            "null" => ctx.mk_term(TermData::Null),
-            "removeAttrs" => ctx.mk_term(TermData::Var(remove_attrs_id)),
-            "throw" => ctx.mk_term(TermData::Var(throw_id)),
-            "toString" => ctx.mk_term(TermData::Var(to_string_id)),
-            "true" => ctx.mk_term(TermData::Var(true_id)),
-            "builtins" => ctx.mk_term(TermData::Var(builtins_id)),
+            "abort" => ctx.mk_term(TermKind::Var(abort_id), Span::default()),
+            "baseNameOf" => ctx.mk_term(TermKind::Var(base_name_of_id), Span::default()),
+            "derivation" => ctx.mk_term(TermKind::Var(derivation_id), Span::default()),
+            "dirOf" => ctx.mk_term(TermKind::Var(dir_of_id), Span::default()),
+            "false" => ctx.mk_term(TermKind::Var(false_id), Span::default()),
+            "import" => ctx.mk_term(TermKind::Var(import_id), Span::default()),
+            "isNull" => ctx.mk_term(TermKind::Var(is_null_id), Span::default()),
+            "map" => ctx.mk_term(TermKind::Var(map_id), Span::default()),
+            "null" => ctx.mk_term(TermKind::Null, Span::default()),
+            "removeAttrs" => ctx.mk_term(TermKind::Var(remove_attrs_id), Span::default()),
+            "throw" => ctx.mk_term(TermKind::Var(throw_id), Span::default()),
+            "toString" => ctx.mk_term(TermKind::Var(to_string_id), Span::default()),
+            "true" => ctx.mk_term(TermKind::Var(true_id), Span::default()),
+            "builtins" => ctx.mk_term(TermKind::Var(builtins_id), Span::default()),
         ],
         map![
             abort_id => Type::fun(Type::any(), Type::none()),

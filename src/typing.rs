@@ -5,7 +5,6 @@ use crate::{
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
-    ops::Deref,
     sync::atomic::{self, AtomicUsize},
 };
 
@@ -806,9 +805,9 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
 }
 
 pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constraint) {
-    use hir::TermData::*;
+    use hir::TermKind::*;
 
-    match term.deref() {
+    match &term.kind {
         True => (Type::tt(), Constraint::top()),
         False => (Type::ff(), Constraint::top()),
         Integer => (Type::integer(), Constraint::top()),
@@ -1102,14 +1101,8 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             (
                 ret_ty.clone(),
                 Constraint::disj(vec![
-                    Constraint::conj(vec![
-                        Constraint::subset(ret_ty.clone(), t1_ty),
-                        t1_c,
-                    ]),
-                    Constraint::conj(vec![
-                        Constraint::subset(ret_ty, t2_ty),
-                        t2_c,
-                    ])
+                    Constraint::conj(vec![Constraint::subset(ret_ty.clone(), t1_ty), t1_c]),
+                    Constraint::conj(vec![Constraint::subset(ret_ty, t2_ty), t2_c]),
                 ]),
             )
         }

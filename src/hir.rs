@@ -4,7 +4,10 @@ use std::{
     fmt,
 };
 
-use crate::context::{Context, Interned};
+use crate::{
+    context::{Context, Interned},
+    span::Span,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(pub(crate) usize);
@@ -123,8 +126,27 @@ pub enum BinOpKind {
 
 // alpha-converted term
 pub type Term<'a> = Interned<'a, TermData<'a>>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TermData<'a> {
+pub struct TermData<'a> {
+    pub kind: TermKind<'a>,
+    pub span: Span,
+}
+
+impl fmt::Display for TermData<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt(f, 1)
+    }
+}
+
+impl TermData<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>, level: usize) -> fmt::Result {
+        self.kind.fmt(f, level)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TermKind<'a> {
     True,
     False,
     Integer,
@@ -148,7 +170,7 @@ pub enum TermData<'a> {
     HasAttr(Term<'a>),
 }
 
-impl fmt::Display for TermData<'_> {
+impl fmt::Display for TermKind<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.fmt(f, 1)
     }
@@ -162,9 +184,9 @@ fn indent(f: &mut fmt::Formatter<'_>, level: usize) -> fmt::Result {
     Ok(())
 }
 
-impl TermData<'_> {
+impl TermKind<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>, level: usize) -> fmt::Result {
-        use TermData::*;
+        use TermKind::*;
 
         match self {
             True => f.write_str("tt"),
@@ -285,6 +307,8 @@ fn to_attr_path<'a>(
 ) -> AttrPath<'a> {
     use rnix::types::*;
 
+    let span = Span::from(ast.text_range());
+
     match match ParsedType::try_from(ast) {
         Ok(a) => a,
         _ => unreachable!(),
@@ -303,7 +327,7 @@ fn to_attr_path<'a>(
             match parts {
                 Some(parts) => AttrPath::Static(parts.concat()),
                 // the string contains an interpolation, hence dynamic
-                None => AttrPath::Dynamic(ctx.mk_term(TermData::String)),
+                None => AttrPath::Dynamic(ctx.mk_term(TermKind::String, span)),
             }
         }
         ParsedType::Dynamic(dynamic) => {
@@ -318,13 +342,14 @@ fn lookup<'a>(
     ctx: &'a Context<'a>,
     env: &AlphaEnv<'a>,
     with_stack: &[Term<'a>],
+    span: Span,
 ) -> Term<'a> {
     match env.get(ident) {
-        Some(t) => *t,
+        Some(t) => ctx.mk_term(t.kind.clone(), span),
         None => with_stack
             .iter()
-            .map(|t| ctx.mk_term(TermData::Select(*t, AttrPath::Static(ident.into()))))
-            .reduce(|t1, t2| ctx.mk_term(TermData::Or(t1, t2)))
+            .map(|t| ctx.mk_term(TermKind::Select(*t, AttrPath::Static(ident.into())), span))
+            .reduce(|t1, t2| ctx.mk_term(TermKind::Or(t1, t2), span))
             .unwrap_or_else(|| panic!("{} not found", ident)),
     }
 }
@@ -338,6 +363,8 @@ pub fn from_rnix<'a>(
     use rnix::types::*;
     use rnix::SyntaxKind::*;
 
+    let span = Span::from(ast.text_range());
+
     match match ParsedType::try_from(ast) {
         Ok(a) => a,
         _ => unreachable!(),
@@ -346,27 +373,27 @@ pub fn from_rnix<'a>(
             let t1 = from_rnix(apply.lambda().unwrap(), ctx, env, with_stack);
             let t2 = from_rnix(apply.value().unwrap(), ctx, env, with_stack);
 
-            ctx.mk_term(TermData::App(t1, t2))
+            ctx.mk_term(TermKind::App(t1, t2), span)
         }
         ParsedType::Assert(assert) => {
             let cond = from_rnix(assert.condition().unwrap(), ctx, env, with_stack);
             let body = from_rnix(assert.body().unwrap(), ctx, env, with_stack);
 
-            ctx.mk_term(TermData::Assert(cond, body))
+            ctx.mk_term(TermKind::Assert(cond, body), span)
         }
-        ParsedType::Ident(ident) => lookup(ident.as_str(), ctx, env, with_stack),
+        ParsedType::Ident(ident) => lookup(ident.as_str(), ctx, env, with_stack, span),
         ParsedType::IfElse(ifelse) => {
             let c = from_rnix(ifelse.condition().unwrap(), ctx, env, with_stack);
             let t = from_rnix(ifelse.body().unwrap(), ctx, env, with_stack);
             let e = from_rnix(ifelse.else_body().unwrap(), ctx, env, with_stack);
 
-            ctx.mk_term(TermData::If(c, t, e))
+            ctx.mk_term(TermKind::If(c, t, e), span)
         }
         ParsedType::Select(select) => {
             let t = from_rnix(select.set().unwrap(), ctx, env, with_stack);
             let f = to_attr_path(select.index().unwrap(), ctx, env, with_stack);
 
-            ctx.mk_term(TermData::Select(t, f))
+            ctx.mk_term(TermKind::Select(t, f), span)
         }
         ParsedType::Lambda(lambda) => {
             let arg = lambda.arg().unwrap();
@@ -374,14 +401,18 @@ pub fn from_rnix<'a>(
 
             match arg.kind() {
                 NODE_IDENT => {
+                    let arg_span = Span::from(arg.text_range());
                     let arg = Ident::cast(arg).unwrap();
                     let arg_id = ctx.new_hir_id();
 
                     let mut env = env.clone();
-                    env.insert(arg.as_str().into(), ctx.mk_term(TermData::Var(arg_id)));
+                    env.insert(
+                        arg.as_str().into(),
+                        ctx.mk_term(TermKind::Var(arg_id), arg_span),
+                    );
 
                     let t = from_rnix(body, ctx, &env, with_stack);
-                    ctx.mk_term(TermData::Lam(arg_id, t))
+                    ctx.mk_term(TermKind::Lam(arg_id, t), span)
                 }
                 NODE_PATTERN => {
                     // Given `args @ { v1 ? t1, ... }: t`, we desugar it to
@@ -394,10 +425,11 @@ pub fn from_rnix<'a>(
                     // ```
                     // Nix allows referring names in the same argument attribute set. e.g. `{ a, b ? a } ...`.
                     // And the desugaring reproduces this behavior.
+                    let args_span = Span::from(arg.text_range());
                     let pattern = Pattern::cast(arg).unwrap();
 
                     let args_id = ctx.new_hir_id();
-                    let args_term = ctx.mk_term(TermData::Var(args_id));
+                    let args_term = ctx.mk_term(TermKind::Var(args_id), args_span);
                     let vn_ids: BTreeMap<String, Id> = pattern
                         .entries()
                         .map(|pat| {
@@ -413,30 +445,38 @@ pub fn from_rnix<'a>(
                         env.insert(at.as_str().into(), args_term);
                     }
                     for (name, id) in vn_ids.iter() {
-                        env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
+                        env.insert(name.clone(), ctx.mk_term(TermKind::Var(*id), args_span));
                     }
 
                     let mut descriptor = KeyValueDescriptor::default();
                     for pat in pattern.entries() {
                         let name = String::from(pat.name().unwrap().as_str());
-                        let select_term = ctx
-                            .mk_term(TermData::Select(args_term, AttrPath::Static(name.clone())));
+                        let select_term = ctx.mk_term(
+                            TermKind::Select(args_term, AttrPath::Static(name.clone())),
+                            args_span,
+                        );
 
                         let t = match pat.default() {
-                            Some(t) => ctx.mk_term(TermData::Or(
-                                select_term,
-                                from_rnix(t, ctx, &env, with_stack),
-                            )),
+                            Some(t) => {
+                                let span = Span::from(t.text_range());
+                                ctx.mk_term(
+                                    TermKind::Or(select_term, from_rnix(t, ctx, &env, with_stack)),
+                                    span,
+                                )
+                            }
                             None => select_term,
                         };
                         descriptor.push(std::iter::once(AttrPath::Static(name)), t);
                     }
                     let t = from_rnix(body, ctx, &env, with_stack);
 
-                    ctx.mk_term(TermData::Lam(
-                        args_id,
-                        ctx.mk_term(TermData::Let(vn_ids, descriptor, t)),
-                    ))
+                    ctx.mk_term(
+                        TermKind::Lam(
+                            args_id,
+                            ctx.mk_term(TermKind::Let(vn_ids, descriptor, t), span),
+                        ),
+                        span,
+                    )
                 }
                 _ => unreachable!(),
             }
@@ -468,7 +508,7 @@ pub fn from_rnix<'a>(
 
             let mut env = env.clone();
             for (name, id) in ids.iter() {
-                env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
+                env.insert(name.clone(), ctx.mk_term(TermKind::Var(*id), span));
             }
 
             let mut descriptor = KeyValueDescriptor::default();
@@ -494,20 +534,22 @@ pub fn from_rnix<'a>(
                         let from = from_rnix(from.inner().unwrap(), ctx, &env, with_stack);
 
                         for ident in inherit.idents() {
+                            let ident_span = Span::from(ident.node().text_range());
                             descriptor.push(
                                 std::iter::once(AttrPath::Static(ident.as_str().into())),
-                                ctx.mk_term(TermData::Select(
-                                    from,
-                                    AttrPath::Static(ident.as_str().into()),
-                                )),
+                                ctx.mk_term(
+                                    TermKind::Select(from, AttrPath::Static(ident.as_str().into())),
+                                    ident_span,
+                                ),
                             );
                         }
                     }
                     None => {
                         for ident in inherit.idents() {
+                            let ident_span = Span::from(ident.node().text_range());
                             descriptor.push(
                                 std::iter::once(AttrPath::Static(ident.as_str().into())),
-                                lookup(ident.as_str(), ctx, &env, with_stack),
+                                lookup(ident.as_str(), ctx, &env, with_stack, ident_span),
                             );
                         }
                     }
@@ -515,7 +557,7 @@ pub fn from_rnix<'a>(
             }
             let t = from_rnix(letin.body().unwrap(), ctx, &env, with_stack);
 
-            ctx.mk_term(TermData::Let(ids, descriptor, t))
+            ctx.mk_term(TermKind::Let(ids, descriptor, t), span)
         }
         ParsedType::List(list) => {
             // CR pandaman: support polymorphic lists
@@ -524,7 +566,7 @@ pub fn from_rnix<'a>(
                 .map(|item| from_rnix(item, ctx, env, with_stack))
                 .collect();
 
-            ctx.mk_term(TermData::List(items))
+            ctx.mk_term(TermKind::List(items), span)
         }
         ParsedType::OrDefault(ordefault) => {
             let t1 = from_rnix(
@@ -535,7 +577,7 @@ pub fn from_rnix<'a>(
             );
             let t2 = from_rnix(ordefault.default().unwrap(), ctx, env, with_stack);
 
-            ctx.mk_term(TermData::Or(t1, t2))
+            ctx.mk_term(TermKind::Or(t1, t2), span)
         }
         ParsedType::Paren(paren) => from_rnix(paren.inner().unwrap(), ctx, env, with_stack),
         ParsedType::Root(root) => from_rnix(root.inner().unwrap(), ctx, env, with_stack),
@@ -586,7 +628,7 @@ pub fn from_rnix<'a>(
 
                 let mut env = env.clone();
                 for (name, id) in ids.iter() {
-                    env.insert(name.clone(), ctx.mk_term(TermData::Var(*id)));
+                    env.insert(name.clone(), ctx.mk_term(TermKind::Var(*id), span));
                 }
 
                 let mut let_descriptor = KeyValueDescriptor::default();
@@ -613,20 +655,25 @@ pub fn from_rnix<'a>(
                             let from = from_rnix(from.inner().unwrap(), ctx, &env, with_stack);
 
                             for ident in inherit.idents() {
+                                let ident_span = Span::from(ident.node().text_range());
                                 let_descriptor.push(
                                     std::iter::once(AttrPath::Static(ident.as_str().into())),
-                                    ctx.mk_term(TermData::Select(
-                                        from,
-                                        AttrPath::Static(ident.as_str().into()),
-                                    )),
+                                    ctx.mk_term(
+                                        TermKind::Select(
+                                            from,
+                                            AttrPath::Static(ident.as_str().into()),
+                                        ),
+                                        ident_span,
+                                    ),
                                 );
                             }
                         }
                         None => {
                             for ident in inherit.idents() {
+                                let ident_span = Span::from(ident.node().text_range());
                                 let_descriptor.push(
                                     std::iter::once(AttrPath::Static(ident.as_str().into())),
-                                    lookup(ident.as_str(), ctx, &env, with_stack),
+                                    lookup(ident.as_str(), ctx, &env, with_stack, ident_span),
                                 );
                             }
                         }
@@ -637,7 +684,7 @@ pub fn from_rnix<'a>(
                 for (name, id) in ids.iter() {
                     attr_set_descriptor.push(
                         std::iter::once(AttrPath::Static(name.into())),
-                        ctx.mk_term(TermData::Var(*id)),
+                        ctx.mk_term(TermKind::Var(*id), span),
                     );
                 }
                 for kv in attrs.entries() {
@@ -652,11 +699,14 @@ pub fn from_rnix<'a>(
                     }
                 }
 
-                ctx.mk_term(TermData::Let(
-                    ids,
-                    let_descriptor,
-                    ctx.mk_term(TermData::AttrSet(attr_set_descriptor)),
-                ))
+                ctx.mk_term(
+                    TermKind::Let(
+                        ids,
+                        let_descriptor,
+                        ctx.mk_term(TermKind::AttrSet(attr_set_descriptor), span),
+                    ),
+                    span,
+                )
             } else {
                 let mut descriptor = KeyValueDescriptor::default();
                 for attr in attrs.entries() {
@@ -672,27 +722,32 @@ pub fn from_rnix<'a>(
                             let from = from_rnix(from.inner().unwrap(), ctx, &env, with_stack);
 
                             for ident in inherit.idents() {
+                                let ident_span = Span::from(ident.node().text_range());
                                 descriptor.push(
                                     std::iter::once(AttrPath::Static(ident.as_str().into())),
-                                    ctx.mk_term(TermData::Select(
-                                        from,
-                                        AttrPath::Static(ident.as_str().into()),
-                                    )),
+                                    ctx.mk_term(
+                                        TermKind::Select(
+                                            from,
+                                            AttrPath::Static(ident.as_str().into()),
+                                        ),
+                                        ident_span,
+                                    ),
                                 );
                             }
                         }
                         None => {
                             for ident in inherit.idents() {
+                                let ident_span = Span::from(ident.node().text_range());
                                 descriptor.push(
                                     std::iter::once(AttrPath::Static(ident.as_str().into())),
-                                    lookup(ident.as_str(), ctx, &env, with_stack),
+                                    lookup(ident.as_str(), ctx, &env, with_stack, ident_span),
                                 );
                             }
                         }
                     }
                 }
 
-                ctx.mk_term(TermData::AttrSet(descriptor))
+                ctx.mk_term(TermKind::AttrSet(descriptor), span)
             }
         }
         ParsedType::UnaryOp(op) => {
@@ -702,7 +757,7 @@ pub fn from_rnix<'a>(
             };
             let value = from_rnix(op.value().unwrap(), ctx, env, with_stack);
 
-            ctx.mk_term(TermData::UnaryOp(kind, value))
+            ctx.mk_term(TermKind::UnaryOp(kind, value), span)
         }
         ParsedType::BinOp(op) => {
             let kind = match op.operator() {
@@ -710,7 +765,7 @@ pub fn from_rnix<'a>(
                 BinOpKind::IsSet => {
                     let t = from_rnix(op.lhs().unwrap(), ctx, env, with_stack);
 
-                    return ctx.mk_term(TermData::HasAttr(t));
+                    return ctx.mk_term(TermKind::HasAttr(t), span);
                 }
                 BinOpKind::Update => self::BinOpKind::Update,
                 BinOpKind::Add => self::BinOpKind::Add,
@@ -731,18 +786,18 @@ pub fn from_rnix<'a>(
             let t1 = from_rnix(op.lhs().unwrap(), ctx, env, with_stack);
             let t2 = from_rnix(op.rhs().unwrap(), ctx, env, with_stack);
 
-            ctx.mk_term(TermData::BinOp(kind, t1, t2))
+            ctx.mk_term(TermKind::BinOp(kind, t1, t2), span)
         }
         // CR pandaman: check terms inside string interpolations
-        ParsedType::Str(_) => ctx.mk_term(TermData::String),
+        ParsedType::Str(_) => ctx.mk_term(TermKind::String, span),
         ParsedType::Value(value) => {
             use rnix::value::Value;
 
             match value.to_value().unwrap() {
                 Value::Float(_) => todo!(),
-                Value::Integer(_) => ctx.mk_term(TermData::Integer),
-                Value::String(_) => ctx.mk_term(TermData::String),
-                Value::Path(_, _) => ctx.mk_term(TermData::Path),
+                Value::Integer(_) => ctx.mk_term(TermKind::Integer, span),
+                Value::String(_) => ctx.mk_term(TermKind::String, span),
+                Value::Path(_, _) => ctx.mk_term(TermKind::Path, span),
             }
         }
         ParsedType::With(with) => {

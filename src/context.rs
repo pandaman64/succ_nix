@@ -9,7 +9,10 @@ use std::{
 
 use typed_arena::Arena;
 
-use crate::hir::{Id, Term, TermData};
+use crate::{
+    hir::{Id, Term, TermData, TermKind},
+    span::Span,
+};
 
 /// the type of interned (hash-consed) things, where equality and hash values are
 /// determined by its memory address
@@ -104,7 +107,8 @@ impl<'a> Context<'a> {
         Id(current)
     }
 
-    pub fn mk_term(&'a self, t: TermData<'a>) -> Term<'a> {
+    pub fn mk_term(&'a self, kind: TermKind<'a>, span: Span) -> Term<'a> {
+        let t = TermData { kind, span };
         let mut terms = self.terms.borrow_mut();
         match terms.get(&t) {
             Some(t) => Interned(t),
@@ -114,31 +118,5 @@ impl<'a> Context<'a> {
                 Interned(t)
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::hir::BinOpKind;
-
-    use super::*;
-
-    #[test]
-    fn test_mk_term() {
-        let ctx = Context::new();
-
-        // (a + a) + (a + a)
-        let a1 = ctx.mk_term(TermData::Integer);
-        let a2 = ctx.mk_term(TermData::Integer);
-        let a1a2 = ctx.mk_term(TermData::BinOp(BinOpKind::Add, a1, a2));
-
-        let b1 = ctx.mk_term(TermData::Integer);
-        let b2 = ctx.mk_term(TermData::Integer);
-        let b1b2 = ctx.mk_term(TermData::BinOp(BinOpKind::Add, b1, b2));
-
-        let t = ctx.mk_term(TermData::BinOp(BinOpKind::Add, a1a2, b1b2));
-
-        eprintln!("{}", t);
-        assert_eq!(ctx.terms_arena.len(), 3);
     }
 }

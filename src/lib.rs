@@ -3,6 +3,7 @@ pub mod builtins;
 mod context;
 mod domain;
 pub mod hir;
+mod span;
 mod typing;
 
 use context::Context;
