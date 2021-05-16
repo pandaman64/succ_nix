@@ -10,7 +10,7 @@ use context::Context;
 use typing::TypeErrorSink;
 pub use typing::{success_type, Environment, Solution, Type};
 
-fn report(input: &str, sink: &TypeErrorSink) {
+fn report(filename: &str, input: &str, sink: &TypeErrorSink) {
     use codespan_reporting::diagnostic::{Diagnostic, Label};
     use codespan_reporting::files::SimpleFile;
     use codespan_reporting::term::{
@@ -19,7 +19,7 @@ fn report(input: &str, sink: &TypeErrorSink) {
         Config,
     };
 
-    let file = SimpleFile::new("input.nix", input);
+    let file = SimpleFile::new(filename, input);
     let writer = StandardStream::stderr(ColorChoice::Auto);
     let mut writer = writer.lock();
     let config = Config::default();
@@ -49,7 +49,7 @@ fn report(input: &str, sink: &TypeErrorSink) {
     }
 }
 
-pub fn run(input: &str, limit: usize) -> (Type, Solution, TypeErrorSink) {
+pub fn run(filename: &str, input: &str, limit: usize) -> (Type, Solution, TypeErrorSink) {
     let ctx = Context::new();
     let (alpha_env, mut ty_env) = builtins::env(&ctx);
 
@@ -74,7 +74,7 @@ pub fn run(input: &str, limit: usize) -> (Type, Solution, TypeErrorSink) {
         eprintln!("{} --> {}", v, t);
     }
 
-    report(input, &sink);
+    report(filename, input, &sink);
 
     (t, sol, sink)
 }
@@ -85,20 +85,20 @@ mod test {
     use domain::AttrSetType;
     use std::collections::BTreeMap;
 
-    fn success(input: &str, expected: Type) {
+    fn success(filename: &str, input: &str, expected: Type) {
         let _ = tracing_subscriber::fmt::try_init();
 
-        let (ty, sol, sink) = run(input, 1000);
+        let (ty, sol, sink) = run(filename, input, 1000);
         let actual = sol.map_ty(&ty);
 
         assert!(!sink.is_error());
         assert_eq!(actual, expected, "\n{} ≠ {}", actual, expected);
     }
 
-    fn fail(input: &str) {
+    fn fail(filename: &str, input: &str) {
         let _ = tracing_subscriber::fmt::try_init();
 
-        let (_ty, _sol, sink) = run(input, 100);
+        let (_ty, _sol, sink) = run(filename, input, 100);
 
         assert!(sink.is_error());
     }
@@ -106,6 +106,7 @@ mod test {
     #[test]
     fn test_not_first() {
         success(
+            "test_not_first.nix",
             "x: y: ! x",
             Type::fun(Type::boolean(), Type::fun(Type::any(), Type::boolean())),
         );
@@ -113,12 +114,13 @@ mod test {
 
     #[test]
     fn test_id() {
-        success("x: x", Type::fun(Type::any(), Type::any()));
+        success("test_id.nix", "x: x", Type::fun(Type::any(), Type::any()));
     }
 
     #[test]
     fn test_xx() {
         success(
+            "test_xx.nix",
             "x: x x",
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
@@ -126,12 +128,13 @@ mod test {
 
     #[test]
     fn test_not_id() {
-        fail("! (x: x)")
+        fail("test_not_id.nix", "! (x: x)")
     }
 
     #[test]
     fn test_branch() {
         success(
+            "test_branch.nix",
             "x: if x then ! x else x",
             Type::fun(Type::boolean(), Type::boolean()),
         );
@@ -142,6 +145,7 @@ mod test {
         // let F be this lambda abstaction.
         // If (F x) terminates, x = ff and F x = ff, which means F is typable with ff -> ff.
         success(
+            "test_branch_half_succ.nix",
             "x: if x then x true else x",
             Type::fun(Type::ff(), Type::ff()),
         );
@@ -150,6 +154,7 @@ mod test {
     #[test]
     fn test_let() {
         success(
+            "test_let.nix",
             "let x = true; y = z: z x; in y",
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         )
@@ -162,25 +167,30 @@ mod test {
         // infer recursive types and thus loop infinitely until the hard limit.
 
         // success("let x = x x; in x", Type::any());
-        fail("let x = x x; in x");
+        fail("test_let_recursive_xx.nix", "let x = x x; in x");
 
         // from TAPL
         // success(
         //     "let hungry = x: hungry; in hungry",
         //     Type::fun(Type::any(), Type::any()),
         // );
-        fail("let hungry = x: hungry; in hungry");
+        fail("test_hungry.nix", "let hungry = x: hungry; in hungry");
     }
 
     #[test]
     fn test_let_fail() {
-        fail("let x = true; y = z: z x; in y x")
+        fail("test_let_fail.nix", "let x = true; y = z: z x; in y x")
     }
 
     #[test]
     fn test_attr_set() {
-        success("{ x = true; y = z: z; }.x", Type::tt());
         success(
+            "test_attr_set_x.nix",
+            "{ x = true; y = z: z; }.x",
+            Type::tt(),
+        );
+        success(
+            "test_attr_set_y.nix",
             "{ x = true; y = z: z; }.y",
             Type::fun(Type::any(), Type::any()),
         );
@@ -189,6 +199,7 @@ mod test {
     #[test]
     fn test_rec() {
         success(
+            "test_rec.nix",
             "let f = x: if x then x else f (! x); in f",
             Type::fun(Type::boolean(), Type::any()),
         );
@@ -197,6 +208,7 @@ mod test {
     #[test]
     fn test_fix() {
         success(
+            "test_nix.nix",
             "let y = f: f (y f); in y",
             Type::fun(Type::fun(Type::any(), Type::any()), Type::any()),
         );
@@ -205,6 +217,7 @@ mod test {
     #[test]
     fn test_attr_set_arg() {
         success(
+            "test_attr_set_arg.nix",
             "x: x.y",
             Type::fun(
                 Type::attr_set(AttrSetType {
@@ -223,6 +236,7 @@ mod test {
         // attributes than neccessary unless specified via `{ <attrs>, ... }`.
         // thefore, the following inference result is imprecise (rest must be none).
         success(
+            "test_attr_set_arg_overapprox.nix",
             "{ y }: y",
             Type::fun(
                 Type::attr_set(AttrSetType {
@@ -241,10 +255,12 @@ mod test {
     #[test]
     fn test_integer() {
         success(
+            "test_integer.nix",
             "x: y: builtins.add x y",
             Type::fun(Type::integer(), Type::fun(Type::integer(), Type::integer())),
         );
         success(
+            "test_integer_arg_pat.nix",
             "{ x, y }: builtins.add x y",
             Type::fun(
                 Type::attr_set(AttrSetType {
@@ -263,12 +279,13 @@ mod test {
 
     #[test]
     fn test_fail_nonexistent_path() {
-        success("builtins.nonexistent", Type::none());
+        success("test_nonexistent.nix", "builtins.nonexistent", Type::none());
     }
 
     #[test]
     fn test_attr_set_rec() {
         success(
+            "test_attr_set_rec.nix",
             "rec { x = 100; y = x; }",
             Type::attr_set(AttrSetType {
                 attrs: {
@@ -284,9 +301,14 @@ mod test {
 
     #[test]
     fn test_assert() {
-        success("assert true; 100", Type::integer());
-        success("x: assert x; x", Type::fun(Type::tt(), Type::tt()));
+        success("test_assert_tt.nix", "assert true; 100", Type::integer());
         success(
+            "test_assert_tt_propaget.nix",
+            "x: assert x; x",
+            Type::fun(Type::tt(), Type::tt()),
+        );
+        success(
+            "test_assert_not.nix",
             "x: assert !x; x",
             Type::fun(Type::boolean(), Type::boolean()),
         );
@@ -295,6 +317,7 @@ mod test {
     #[test]
     fn test_with() {
         success(
+            "test_with.nix",
             "with { a = 100; b.c = 200; }; b",
             Type::attr_set(AttrSetType {
                 attrs: {
@@ -307,6 +330,7 @@ mod test {
         );
 
         success(
+            "test_with_precedence.nix",
             "let a = ''foo''; b = { a = 100; }; in with b; a",
             Type::string(),
         );
@@ -315,6 +339,7 @@ mod test {
         // However, as our desugaring nondeterministically choose the namespace from which we
         // select, we get a union type.
         success(
+            "test_with_multiple.nix",
             "with { a = 100; }; with { a = ''foo''; }; a",
             Type::string().sup(&Type::integer()),
         );
@@ -324,12 +349,17 @@ mod test {
     fn test_dynamic_attr() {
         // Currently, we do not constrain the result type enough,
         // so we get a looser success type.
-        success("{ a = 100; }.${''x''}", Type::any());
+        success(
+            "test_dynamic_attr.nix",
+            "{ a = 100; }.${''x''}",
+            Type::any(),
+        );
     }
 
     #[test]
     fn test_assert_msg() {
         success(
+            "test_assert_msg.nix",
             "pred: if pred then true else (x: x) pred",
             Type::fun(Type::boolean(), Type::any()),
         );
@@ -337,6 +367,6 @@ mod test {
 
     #[test]
     fn test_app_information_loss() {
-        success("(x: x) true", Type::any());
+        success("test_app_information_loss.nix", "(x: x) true", Type::any());
     }
 }
