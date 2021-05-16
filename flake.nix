@@ -63,6 +63,7 @@
               pkgs.nixpkgs-fmt
               pkgs.rust-bin.${rustChannel}.latest.rust-analysis
               pkgs.rust-bin.${rustChannel}.latest.rls
+              pkgs.cargo-edit
             ];
             RUST_SRC_PATH = "${pkgs.rust-bin.${rustChannel}.latest.rust-src}/lib/rustlib/src/rust/library";
           };
