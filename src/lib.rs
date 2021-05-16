@@ -10,6 +10,45 @@ use context::Context;
 use typing::TypeErrorSink;
 pub use typing::{success_type, Environment, Solution, Type};
 
+fn report(input: &str, sink: &TypeErrorSink) {
+    use codespan_reporting::diagnostic::{Diagnostic, Label};
+    use codespan_reporting::files::SimpleFile;
+    use codespan_reporting::term::{
+        emit,
+        termcolor::{ColorChoice, StandardStream},
+        Config,
+    };
+
+    let file = SimpleFile::new("input.nix", input);
+    let writer = StandardStream::stderr(ColorChoice::Auto);
+    let mut writer = writer.lock();
+    let config = Config::default();
+
+    for error in sink.errors() {
+        use typing::TypeErrorKind::*;
+
+        let diagnostic = match &error.kind {
+            Subset(smaller, larger) => Diagnostic::error()
+                .with_message(format!(
+                    "subset constraint `{} ⊂ {}` cannot be met",
+                    smaller, larger
+                ))
+                .with_labels(vec![Label::primary((), error.span.start..error.span.end)
+                    .with_message("the constraint comes from here")]),
+            Disj => Diagnostic::error()
+                .with_message("no clauses in disjunction cannot be satisfied")
+                .with_labels(vec![Label::primary((), error.span.start..error.span.end)
+                    .with_message("the constraint comes from here")]),
+            Limit => Diagnostic::error()
+                .with_message("limit reached while inferencing types")
+                .with_labels(vec![Label::primary((), error.span.start..error.span.end)
+                    .with_message("while inferencing the types for this term")]),
+        };
+
+        emit(&mut writer, &config, &file, &diagnostic).unwrap();
+    }
+}
+
 pub fn run(input: &str, limit: usize) -> (Type, Solution, TypeErrorSink) {
     let ctx = Context::new();
     let (alpha_env, mut ty_env) = builtins::env(&ctx);
@@ -34,6 +73,8 @@ pub fn run(input: &str, limit: usize) -> (Type, Solution, TypeErrorSink) {
     for (v, t) in sol.map.iter() {
         eprintln!("{} --> {}", v, t);
     }
+
+    report(input, &sink);
 
     (t, sol, sink)
 }

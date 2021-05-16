@@ -1195,14 +1195,52 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TypeError {
+    pub kind: TypeErrorKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypeErrorKind {
+    Subset(Type, Type),
+    Disj,
+    Limit,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct TypeErrorSink {
-    is_error: bool,
+    errors: Vec<TypeError>,
 }
 
 impl TypeErrorSink {
+    fn push_subset_error(&mut self, smaller: Type, larger: Type, span: Span) {
+        self.errors.push(TypeError {
+            kind: TypeErrorKind::Subset(smaller, larger),
+            span,
+        });
+    }
+
+    fn push_disj_error(&mut self, span: Span) {
+        self.errors.push(TypeError {
+            kind: TypeErrorKind::Disj,
+            span,
+        });
+    }
+
+    fn push_limit_error(&mut self, span: Span) {
+        self.errors.push(TypeError {
+            kind: TypeErrorKind::Limit,
+            span,
+        })
+    }
+
     pub fn is_error(&self) -> bool {
-        self.is_error
+        !self.errors.is_empty()
+    }
+
+    pub fn errors(&self) -> impl Iterator<Item = &TypeError> {
+        self.errors.iter()
     }
 }
 
@@ -1346,9 +1384,7 @@ impl Solution {
             let inf = cur1.inf(&cur2);
             // type clash, or the constraint cannot be met
             if inf.is_bottom() {
-                // TODO: more useful error reporting e.g. file names and lines
-                tracing::error!("type clash between {} and {} at {:?}", cur1, cur2, span);
-                sink.is_error = true;
+                sink.push_subset_error(cur1, cur2, span);
             }
             self.update(t1, &inf);
         }
@@ -1397,11 +1433,7 @@ impl Solution {
                         }
                         None => {
                             // at least one branch must have a satisfying solution
-                            tracing::error!(
-                                "no clauses in disjunction can be satisfied at {:?}",
-                                c.span
-                            );
-                            sink.is_error = true;
+                            sink.push_disj_error(c.span);
                         }
                     }
                 }
@@ -1427,7 +1459,7 @@ impl Solution {
         }
 
         // failed to find a solution within a determined limit
-        sink.is_error = true;
+        sink.push_limit_error(c.span);
     }
 
     fn init_ftv(&mut self, c: &Constraint) {
