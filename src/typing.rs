@@ -1,10 +1,11 @@
 use crate::{
     domain::*,
     hir::{self, KeyValueDescriptor},
+    span::Span,
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    fmt,
+    fmt::{self, Debug},
     sync::atomic::{self, AtomicUsize},
 };
 
@@ -691,7 +692,58 @@ impl Type {
 }
 
 #[derive(Debug, Clone)]
-pub enum Constraint {
+pub struct Constraint {
+    pub kind: ConstraintKind,
+    pub span: Span,
+}
+
+impl fmt::Display for Constraint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.kind, f)
+    }
+}
+
+impl Constraint {
+    fn top(span: Span) -> Self {
+        Self {
+            kind: ConstraintKind::Conj(vec![]),
+            span,
+        }
+    }
+
+    fn eq(ty1: Type, ty2: Type, span: Span) -> Self {
+        Self {
+            kind: ConstraintKind::Equal(ty1.into(), ty2.into()),
+            span,
+        }
+    }
+
+    fn subset(ty1: Type, ty2: Type, span: Span) -> Self {
+        Self {
+            kind: ConstraintKind::Subset(ty1.into(), ty2.into()),
+            span,
+        }
+    }
+
+    fn conj(cs: Vec<Constraint>, span: Span) -> Self {
+        // CR pandaman: normalize?
+        Self {
+            kind: ConstraintKind::Conj(cs),
+            span,
+        }
+    }
+
+    fn disj(cs: Vec<Constraint>, span: Span) -> Self {
+        // CR pandaman: normalize?
+        Self {
+            kind: ConstraintKind::Disj(cs),
+            span,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstraintKind {
     // special case of conjunction of subset rules
     Equal(Box<Type>, Box<Type>),
     Subset(Box<Type>, Box<Type>),
@@ -699,9 +751,9 @@ pub enum Constraint {
     Disj(Vec<Constraint>),
 }
 
-impl fmt::Display for Constraint {
+impl fmt::Display for ConstraintKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Constraint::*;
+        use ConstraintKind::*;
 
         match self {
             Equal(lhs, rhs) => write!(f, "{} = {}", lhs, rhs),
@@ -730,30 +782,6 @@ impl fmt::Display for Constraint {
     }
 }
 
-impl Constraint {
-    fn top() -> Self {
-        Constraint::Conj(vec![])
-    }
-
-    fn eq(ty1: Type, ty2: Type) -> Self {
-        Constraint::Equal(ty1.into(), ty2.into())
-    }
-
-    fn subset(ty1: Type, ty2: Type) -> Self {
-        Constraint::Subset(ty1.into(), ty2.into())
-    }
-
-    fn conj(cs: Vec<Constraint>) -> Self {
-        // CR pandaman: normalize?
-        Constraint::Conj(cs)
-    }
-
-    fn disj(cs: Vec<Constraint>) -> Self {
-        // CR pandaman: normalize?
-        Constraint::Disj(cs)
-    }
-}
-
 pub type Environment = HashMap<hir::Id, Type>;
 
 fn fresh_tvar() -> Type {
@@ -763,7 +791,11 @@ fn fresh_tvar() -> Type {
     Type::var(format!("α{}", current))
 }
 
-fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (Type, Constraint) {
+fn type_descriptor(
+    env: &mut Environment,
+    attrs: &hir::KeyValueDescriptor,
+    span: Span,
+) -> (Type, Constraint) {
     use hir::KeyValueDescriptor::*;
 
     match attrs {
@@ -776,7 +808,7 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
             for (name, child) in descriptors.iter() {
                 use hir::AttrPath::*;
 
-                let (desc_ty, desc_c) = type_descriptor(env, child);
+                let (desc_ty, desc_c) = type_descriptor(env, child, span);
                 constraints.push(desc_c);
 
                 match name {
@@ -785,7 +817,7 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
                     }
                     Dynamic(name) => {
                         let (name_ty, name_c) = success_type(env, name);
-                        constraints.push(Constraint::subset(name_ty, Type::string()));
+                        constraints.push(Constraint::subset(name_ty, Type::string(), name.span));
                         constraints.push(name_c);
 
                         // merge types of dynamic attributes
@@ -799,7 +831,7 @@ fn type_descriptor(env: &mut Environment, attrs: &hir::KeyValueDescriptor) -> (T
                 rest: rest.into(),
             });
 
-            (result_ty, Constraint::conj(constraints))
+            (result_ty, Constraint::conj(constraints, span))
         }
     }
 }
@@ -808,9 +840,9 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
     use hir::TermKind::*;
 
     match &term.kind {
-        True => (Type::tt(), Constraint::top()),
-        False => (Type::ff(), Constraint::top()),
-        Integer => (Type::integer(), Constraint::top()),
+        True => (Type::tt(), Constraint::top(term.span)),
+        False => (Type::ff(), Constraint::top(term.span)),
+        Integer => (Type::integer(), Constraint::top(term.span)),
         List(items) => {
             let constraints = items
                 .iter()
@@ -820,13 +852,13 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                     c
                 })
                 .collect();
-            (Type::list(), Constraint::conj(constraints))
+            (Type::list(), Constraint::conj(constraints, term.span))
         }
-        Null => (Type::null(), Constraint::top()),
-        Path => (Type::path(), Constraint::top()),
-        String => (Type::string(), Constraint::top()),
+        Null => (Type::null(), Constraint::top(term.span)),
+        Path => (Type::path(), Constraint::top(term.span)),
+        String => (Type::string(), Constraint::top(term.span)),
         // assumes every name is in the environment already
-        Var(v) => (env.get(v).unwrap().clone(), Constraint::top()),
+        Var(v) => (env.get(v).unwrap().clone(), Constraint::top(term.span)),
         Lam(x, t) => {
             let arg_ty = fresh_tvar();
             env.insert(*x, arg_ty.clone());
@@ -835,10 +867,13 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (
                 fun_ty.clone(),
-                Constraint::conj(vec![
-                    Constraint::subset(fun_ty, Type::fun(arg_ty, ret_ty)),
-                    c,
-                ]),
+                Constraint::conj(
+                    vec![
+                        Constraint::subset(fun_ty, Type::fun(arg_ty, ret_ty), term.span),
+                        c,
+                    ],
+                    term.span,
+                ),
             )
         }
         App(t1, t2) => {
@@ -848,20 +883,23 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             let app_ty = fresh_tvar();
             let arg_ty = fresh_tvar();
             let ret_ty = fresh_tvar();
-            let app_constraint = Constraint::conj(vec![
-                // CR pandaman: I'm not sure that we should introduce equality here in the presence of function unions.
-                // Consider a case where `Γ ⊢ not: true -> false ∪ false -> true, t: τ`.
-                // In this case, `not t` generates an equality constraint `true -> false ∪ false -> true = α -> β`.
-                // Since this equation does not have an answer, we instead solve an inprecise equation of `boolean -> boolean = α -> β`.
-                // However, we can just admit it does not have an answer, and generate constraint of `α -> β ⊂ true -> false ∪ false -> true`.
-                // The subset constraint diverges from the Success Typing paper, but we think this version is more correct.
-                // (Probably they are not considering function unions, and just taking the `merge` of them)
-                Constraint::eq(ty1, Type::fun(arg_ty.clone(), ret_ty.clone())),
-                Constraint::subset(ty2, arg_ty),
-                Constraint::subset(app_ty, ret_ty.clone()),
-                c1,
-                c2,
-            ]);
+            let app_constraint = Constraint::conj(
+                vec![
+                    // CR pandaman: I'm not sure that we should introduce equality here in the presence of function unions.
+                    // Consider a case where `Γ ⊢ not: true -> false ∪ false -> true, t: τ`.
+                    // In this case, `not t` generates an equality constraint `true -> false ∪ false -> true = α -> β`.
+                    // Since this equation does not have an answer, we instead solve an inprecise equation of `boolean -> boolean = α -> β`.
+                    // However, we can just admit it does not have an answer, and generate constraint of `α -> β ⊂ true -> false ∪ false -> true`.
+                    // The subset constraint diverges from the Success Typing paper, but we think this version is more correct.
+                    // (Probably they are not considering function unions, and just taking the `merge` of them)
+                    Constraint::eq(ty1, Type::fun(arg_ty.clone(), ret_ty.clone()), t1.span),
+                    Constraint::subset(ty2, arg_ty, t2.span),
+                    Constraint::subset(app_ty, ret_ty.clone(), term.span),
+                    c1,
+                    c2,
+                ],
+                term.span,
+            );
 
             (ret_ty, app_constraint)
         }
@@ -869,12 +907,15 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             let (cond_ty, cond_c) = success_type(env, t1);
             let (body_ty, body_c) = success_type(env, t2);
 
-            let constraints = Constraint::conj(vec![
-                // CR pandaman: I'm not sure that the return type should be true or boolean
-                Constraint::subset(cond_ty, Type::tt()),
-                cond_c,
-                body_c,
-            ]);
+            let constraints = Constraint::conj(
+                vec![
+                    // CR pandaman: I'm not sure that the return type should be true or boolean
+                    Constraint::subset(cond_ty, Type::tt(), t1.span),
+                    cond_c,
+                    body_c,
+                ],
+                term.span,
+            );
 
             (body_ty, constraints)
         }
@@ -884,23 +925,35 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             let (e_ty, e_c) = success_type(env, e);
 
             let result_ty = fresh_tvar();
-            let result_c = Constraint::conj(vec![
-                c_c,
-                Constraint::disj(vec![
-                    // then
-                    Constraint::conj(vec![
-                        Constraint::eq(c_ty.clone(), Type::tt()),
-                        Constraint::eq(result_ty.clone(), t_ty),
-                        t_c,
-                    ]),
-                    // else
-                    Constraint::conj(vec![
-                        Constraint::eq(c_ty, Type::ff()),
-                        Constraint::eq(result_ty.clone(), e_ty),
-                        e_c,
-                    ]),
-                ]),
-            ]);
+            let result_c = Constraint::conj(
+                vec![
+                    c_c,
+                    Constraint::disj(
+                        vec![
+                            // then
+                            Constraint::conj(
+                                vec![
+                                    Constraint::eq(c_ty.clone(), Type::tt(), c.span),
+                                    Constraint::eq(result_ty.clone(), t_ty, t.span),
+                                    t_c,
+                                ],
+                                term.span,
+                            ),
+                            // else
+                            Constraint::conj(
+                                vec![
+                                    Constraint::eq(c_ty, Type::ff(), c.span),
+                                    Constraint::eq(result_ty.clone(), e_ty, e.span),
+                                    e_c,
+                                ],
+                                term.span,
+                            ),
+                        ],
+                        term.span,
+                    ),
+                ],
+                term.span,
+            );
 
             (result_ty, result_c)
         }
@@ -915,7 +968,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                     let (tys, cs): (Vec<(&str, Type)>, Vec<Constraint>) = descriptors
                         .iter()
                         .map(|(name, child)| {
-                            let (ty, c) = type_descriptor(env, child);
+                            let (ty, c) = type_descriptor(env, child, term.span);
 
                             // let cannot have descriptors that start with
                             // dynamic attribute names.
@@ -931,18 +984,18 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                         .iter()
                         .map(|(name, ty)| {
                             let tv = env.get(names.get(*name).unwrap()).unwrap().clone();
-                            Constraint::eq(tv, ty.clone())
+                            Constraint::eq(tv, ty.clone(), term.span)
                         })
                         .chain(cs)
                         .chain(std::iter::once(result_c))
                         .collect();
 
-                    (result_ty, Constraint::conj(constraints))
+                    (result_ty, Constraint::conj(constraints, term.span))
                 }
                 _ => unreachable!(),
             }
         }
-        AttrSet(attrs) => type_descriptor(env, attrs),
+        AttrSet(attrs) => type_descriptor(env, attrs, term.span),
         UnaryOp(kind, t) => {
             use hir::UnaryOpKind::*;
 
@@ -951,13 +1004,16 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                     let (t_ty, t_c) = success_type(env, t);
                     let ret_ty = fresh_tvar();
 
-                    let constraints = Constraint::conj(vec![
-                        // CR pandaman: consider constructing a constraint like
-                        // `(τ_t ⊂ tt ∧ τ_ret ⊂ ff) ∨ (τ_t ⊂ ff ∧ τ_ret ⊂ tt)`
-                        Constraint::subset(t_ty, Type::boolean()),
-                        Constraint::subset(ret_ty.clone(), Type::boolean()),
-                        t_c,
-                    ]);
+                    let constraints = Constraint::conj(
+                        vec![
+                            // CR pandaman: consider constructing a constraint like
+                            // `(τ_t ⊂ tt ∧ τ_ret ⊂ ff) ∨ (τ_t ⊂ ff ∧ τ_ret ⊂ tt)`
+                            Constraint::subset(t_ty, Type::boolean(), t.span),
+                            Constraint::subset(ret_ty.clone(), Type::boolean(), term.span),
+                            t_c,
+                        ],
+                        term.span,
+                    );
 
                     (ret_ty, constraints)
                 }
@@ -965,11 +1021,14 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                     let (t_ty, t_c) = success_type(env, t);
                     let ret_ty = fresh_tvar();
 
-                    let constraints = Constraint::conj(vec![
-                        Constraint::subset(t_ty, Type::integer()),
-                        Constraint::subset(ret_ty.clone(), Type::integer()),
-                        t_c,
-                    ]);
+                    let constraints = Constraint::conj(
+                        vec![
+                            Constraint::subset(t_ty, Type::integer(), t.span),
+                            Constraint::subset(ret_ty.clone(), Type::integer(), term.span),
+                            t_c,
+                        ],
+                        term.span,
+                    );
 
                     (ret_ty, constraints)
                 }
@@ -985,47 +1044,47 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             let mut constraints = match kind {
                 Add | Sub | Mul | Div => {
                     vec![
-                        Constraint::subset(t1_ty, Type::integer()),
-                        Constraint::subset(t2_ty, Type::integer()),
-                        Constraint::subset(ret_ty.clone(), Type::integer()),
+                        Constraint::subset(t1_ty, Type::integer(), t1.span),
+                        Constraint::subset(t2_ty, Type::integer(), t2.span),
+                        Constraint::subset(ret_ty.clone(), Type::integer(), term.span),
                     ]
                 }
                 And | Or | Implication => {
                     vec![
-                        Constraint::subset(t1_ty, Type::boolean()),
+                        Constraint::subset(t1_ty, Type::boolean(), t1.span),
                         // Due to short-curcuiting, the second argument can be any type
                         // e.g. `false && 100 = false`
-                        Constraint::subset(t2_ty, Type::any()),
-                        Constraint::subset(ret_ty.clone(), Type::boolean()),
+                        Constraint::subset(t2_ty, Type::any(), t2.span),
+                        Constraint::subset(ret_ty.clone(), Type::boolean(), term.span),
                     ]
                 }
                 Equal | NotEqual => {
                     vec![
-                        Constraint::subset(t1_ty, Type::any()),
-                        Constraint::subset(t2_ty, Type::any()),
-                        Constraint::subset(ret_ty.clone(), Type::boolean()),
+                        Constraint::subset(t1_ty, Type::any(), t1.span),
+                        Constraint::subset(t2_ty, Type::any(), t2.span),
+                        Constraint::subset(ret_ty.clone(), Type::boolean(), term.span),
                     ]
                 }
                 Less | LessOrEq | Greater | GreaterOrEq => {
                     vec![
-                        Constraint::subset(t1_ty, Type::any()),
-                        Constraint::subset(t2_ty, Type::any()),
-                        Constraint::subset(ret_ty.clone(), Type::boolean()),
+                        Constraint::subset(t1_ty, Type::any(), t1.span),
+                        Constraint::subset(t2_ty, Type::any(), t2.span),
+                        Constraint::subset(ret_ty.clone(), Type::boolean(), term.span),
                     ]
                 }
                 Concat => {
                     vec![
-                        Constraint::subset(t1_ty, Type::list()),
-                        Constraint::subset(t2_ty, Type::list()),
-                        Constraint::subset(ret_ty.clone(), Type::list()),
+                        Constraint::subset(t1_ty, Type::list(), t1.span),
+                        Constraint::subset(t2_ty, Type::list(), t2.span),
+                        Constraint::subset(ret_ty.clone(), Type::list(), term.span),
                     ]
                 }
                 Update => {
                     vec![
                         // arguments must be attrsets
-                        Constraint::subset(t1_ty, Type::any_attr_set()),
-                        Constraint::subset(t2_ty, Type::any_attr_set()),
-                        Constraint::subset(ret_ty.clone(), Type::any_attr_set()),
+                        Constraint::subset(t1_ty, Type::any_attr_set(), t1.span),
+                        Constraint::subset(t2_ty, Type::any_attr_set(), t2.span),
+                        Constraint::subset(ret_ty.clone(), Type::any_attr_set(), term.span),
                     ]
                 }
             };
@@ -1033,7 +1092,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
             constraints.push(t1_c);
             constraints.push(t2_c);
 
-            (ret_ty, Constraint::conj(constraints))
+            (ret_ty, Constraint::conj(constraints, term.span))
         }
         Select(t, x) => {
             use hir::AttrPath::*;
@@ -1055,6 +1114,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                             rest: Type::none().into(),
                         }),
                         t_ty.clone(),
+                        term.span,
                     ),
                     // In order to `t.x` evaluates to a value, `t` must be in the set of
                     // all attribute set with `x` field, i.e. `{ x = τ_x, ... = any }`.
@@ -1068,6 +1128,7 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
                             },
                             rest: Type::any().into(),
                         }),
+                        term.span,
                     ),
                 ],
                 Dynamic(name) => {
@@ -1080,16 +1141,16 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
                     vec![
                         // dynamic name evaluates to a string
-                        Constraint::subset(name_ty, Type::string()),
+                        Constraint::subset(name_ty, Type::string(), name.span),
                         name_c,
                         // `t` must be an attribute set
-                        Constraint::subset(t_ty, Type::any_attr_set()),
+                        Constraint::subset(t_ty, Type::any_attr_set(), term.span),
                     ]
                 }
             };
             constraints.push(t_c);
 
-            (tx_ty, Constraint::conj(constraints))
+            (tx_ty, Constraint::conj(constraints, term.span))
         }
         Or(t1, t2) => {
             // precisely, `or` operator introduces an implication, like
@@ -1100,10 +1161,19 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (
                 ret_ty.clone(),
-                Constraint::disj(vec![
-                    Constraint::conj(vec![Constraint::subset(ret_ty.clone(), t1_ty), t1_c]),
-                    Constraint::conj(vec![Constraint::subset(ret_ty, t2_ty), t2_c]),
-                ]),
+                Constraint::disj(
+                    vec![
+                        Constraint::conj(
+                            vec![Constraint::subset(ret_ty.clone(), t1_ty, term.span), t1_c],
+                            term.span,
+                        ),
+                        Constraint::conj(
+                            vec![Constraint::subset(ret_ty, t2_ty, term.span), t2_c],
+                            term.span,
+                        ),
+                    ],
+                    term.span,
+                ),
             )
         }
         HasAttr(t) => {
@@ -1112,11 +1182,14 @@ pub fn success_type(env: &mut Environment, term: &hir::Term) -> (Type, Constrain
 
             (
                 ret_ty.clone(),
-                Constraint::conj(vec![
-                    Constraint::subset(t_ty, Type::any_attr_set()),
-                    Constraint::subset(ret_ty, Type::boolean()),
-                    t_c,
-                ]),
+                Constraint::conj(
+                    vec![
+                        Constraint::subset(t_ty, Type::any_attr_set(), term.span),
+                        Constraint::subset(ret_ty, Type::boolean(), term.span),
+                        t_c,
+                    ],
+                    term.span,
+                ),
             )
         }
     }
@@ -1261,7 +1334,7 @@ impl Solution {
         }
     }
 
-    fn refine_subset(&mut self, t1: &Type, t2: &Type, sink: &mut TypeErrorSink) {
+    fn refine_subset(&mut self, t1: &Type, t2: &Type, sink: &mut TypeErrorSink, span: Span) {
         tracing::trace!("refine subset: {} ⊆ {}", t1, t2);
 
         let cur1 = self.map_ty(t1);
@@ -1274,7 +1347,7 @@ impl Solution {
             // type clash, or the constraint cannot be met
             if inf.is_bottom() {
                 // TODO: more useful error reporting e.g. file names and lines
-                tracing::error!("type clash between {} and {}", cur1, cur2);
+                tracing::error!("type clash between {} and {} at {:?}", cur1, cur2, span);
                 sink.is_error = true;
             }
             self.update(t1, &inf);
@@ -1286,15 +1359,15 @@ impl Solution {
             *limit = limit.saturating_sub(1);
 
             tracing::debug!("refine: {}", c);
-            use Constraint::*;
+            use ConstraintKind::*;
 
             let old = self.clone();
-            match c {
+            match &c.kind {
                 Equal(t1, t2) => {
-                    self.refine_subset(t1, t2, sink);
-                    self.refine_subset(t2, t1, sink);
+                    self.refine_subset(t1, t2, sink, c.span);
+                    self.refine_subset(t2, t1, sink, c.span);
                 }
-                Subset(t1, t2) => self.refine_subset(t1, t2, sink),
+                Subset(t1, t2) => self.refine_subset(t1, t2, sink, c.span),
                 Conj(cs) => cs.iter().for_each(|c| self.refine(c, sink, limit)),
                 Disj(cs) => {
                     // prevent interleaving mutable access to self
@@ -1324,6 +1397,10 @@ impl Solution {
                         }
                         None => {
                             // at least one branch must have a satisfying solution
+                            tracing::error!(
+                                "no clauses in disjunction can be satisfied at {:?}",
+                                c.span
+                            );
                             sink.is_error = true;
                         }
                     }
@@ -1354,9 +1431,9 @@ impl Solution {
     }
 
     fn init_ftv(&mut self, c: &Constraint) {
-        use Constraint::*;
+        use ConstraintKind::*;
 
-        match c {
+        match &c.kind {
             Equal(t1, t2) | Subset(t1, t2) => {
                 for tv in t1.ftv() {
                     self.map.insert(tv.clone(), Type::any());
