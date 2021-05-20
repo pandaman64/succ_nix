@@ -42,9 +42,12 @@
               src = ./.;
             })
             { };
+          runTests = false;
         in
         rec {
-          packages.${name} = crate.rootCrate.build;
+          packages.${name} = crate.rootCrate.build.override {
+            inherit runTests;
+          };
 
           # nix build
           defaultPackage = packages.${name};
